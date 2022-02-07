@@ -1,6 +1,6 @@
 use rnet::{packet::PacketFlags, server::Server};
-use std::{ops::Range, time::Duration};
-use tokio::{runtime::Runtime, time::sleep};
+use std::ops::Range;
+use tokio::{runtime::Runtime, time::Instant};
 
 //
 
@@ -17,28 +17,39 @@ pub fn main() {
         for i in RANGE {
             handler
                 .send(format!("a {i}").into(), PacketFlags::PRESET_IMPORTANT)
-                .await;
+                .await
+                .unwrap();
         }
-
-        sleep(Duration::from_secs(1)).await;
 
         // ordered test
         println!("sending ordered");
         for i in RANGE {
             handler
                 .send(format!("b {i}").into(), PacketFlags::PRESET_ASSERTIVE)
-                .await;
+                .await
+                .unwrap();
         }
-
-        sleep(Duration::from_secs(1)).await;
 
         // unreliable test
         println!("sending unreliable");
         for i in RANGE {
             handler
                 .send(format!("c {i}").into(), PacketFlags::PRESET_DEFAULT)
-                .await;
+                .await
+                .unwrap();
         }
+
+        // custom test
+        println!("receiving custom");
+        let timer = Instant::now();
+        for i in RANGE {
+            let message: i32 = handler.read_ty().await.unwrap();
+            let expect = i * 8;
+            if message != expect {
+                println!("out of order")
+            }
+        }
+        println!("receiving done: {:?}", timer.elapsed());
 
         server.wait_idle().await;
     });

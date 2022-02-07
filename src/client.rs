@@ -1,7 +1,9 @@
 use crate::{connection::CommonConnection, packet::PacketFlags};
+use bincode::config::Configuration;
 use bytes::Bytes;
 use quinn::{ClientConfig, Endpoint, NewConnection};
 use rustls::{client::ServerCertVerifier, Certificate};
+use serde::{de::DeserializeOwned, Serialize};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
@@ -77,5 +79,23 @@ impl Client {
 
     pub async fn send(&mut self, message: Bytes, flags: PacketFlags) -> Option<()> {
         self.connection.send(message, flags).await
+    }
+
+    pub async fn read_ty<T>(&mut self) -> Option<T>
+    where
+        T: DeserializeOwned,
+    {
+        const CONFIG: Configuration = bincode::config::standard();
+        let bytes = self.read().await?;
+        Some(bincode::serde::decode_from_slice(&bytes, CONFIG).unwrap().0)
+    }
+
+    pub async fn send_ty<T>(&mut self, message: &T, flags: PacketFlags) -> Option<()>
+    where
+        T: Serialize,
+    {
+        const CONFIG: Configuration = bincode::config::standard();
+        let message = bincode::serde::encode_to_vec(message, CONFIG).unwrap();
+        self.send(message.into(), flags).await
     }
 }

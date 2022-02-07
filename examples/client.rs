@@ -1,9 +1,6 @@
-use rnet::client::Client;
-use std::{ops::Range, time::Duration};
-use tokio::{
-    runtime::Runtime,
-    time::{sleep, Instant},
-};
+use rnet::{client::Client, packet::PacketFlags};
+use std::ops::Range;
+use tokio::{runtime::Runtime, time::Instant};
 
 //
 
@@ -14,6 +11,7 @@ pub fn main() {
 
         const RANGE: Range<i32> = 0..20000;
 
+        // unordered test
         println!("receiving unordered");
         let timer = Instant::now();
         for i in RANGE {
@@ -21,13 +19,12 @@ pub fn main() {
             let message = std::str::from_utf8(&message[..]).unwrap();
             let expect = format!("a {i}");
             if message != expect {
-                println!("out of order")
+                // println!("out of order")
             }
         }
         println!("receiving done: {:?}", timer.elapsed());
 
-        sleep(Duration::from_secs(1)).await;
-
+        // ordered test
         println!("receiving ordered");
         let timer = Instant::now();
         for i in RANGE {
@@ -35,13 +32,12 @@ pub fn main() {
             let message = std::str::from_utf8(&message[..]).unwrap();
             let expect = format!("b {i}");
             if message != expect {
-                println!("out of order")
+                // println!("out of order")
             }
         }
         println!("receiving done: {:?}", timer.elapsed());
 
-        sleep(Duration::from_secs(1)).await;
-
+        // unreliable test
         println!("receiving unreliable");
         let timer = Instant::now();
         for i in RANGE {
@@ -49,9 +45,20 @@ pub fn main() {
             let message = std::str::from_utf8(&message[..]).unwrap();
             let expect = format!("c {i}");
             if message != expect {
-                println!("out of order")
+                // println!("out of order")
             }
         }
         println!("receiving done: {:?}", timer.elapsed());
+
+        // custom test
+        println!("sending custom");
+        for i in RANGE {
+            client
+                .send_ty(&(i * 8), PacketFlags::PRESET_IMPORTANT)
+                .await
+                .unwrap();
+        }
+
+        client.wait_idle().await;
     });
 }

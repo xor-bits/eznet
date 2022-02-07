@@ -37,7 +37,7 @@ impl Server {
     }
 
     pub async fn accept(&mut self) -> Handler {
-        Handler::new(self.incoming.next().await.unwrap().await.unwrap())
+        Handler::new(self.incoming.next().await.unwrap().await.unwrap()).await
     }
 
     pub async fn wait_idle(&self) {

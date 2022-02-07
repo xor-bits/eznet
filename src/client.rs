@@ -1,8 +1,4 @@
-use crate::{
-    connection::{CommonConnection, Connection},
-    packet::PacketFlags,
-};
-use async_trait::async_trait;
+use crate::{connection::CommonConnection, packet::PacketFlags};
 use bytes::Bytes;
 use quinn::{ClientConfig, Endpoint, NewConnection};
 use rustls::{client::ServerCertVerifier, Certificate};
@@ -32,11 +28,11 @@ impl Client {
         let remote = conn.connection.remote_address();
         log::debug!("client connected: {remote}");
 
-        Self::from_conn(conn, endpoint)
+        Self::from_conn(conn, endpoint).await
     }
 
-    pub fn from_conn(conn: NewConnection, endpoint: Endpoint) -> Self {
-        let connection = CommonConnection::new(conn);
+    pub async fn from_conn(conn: NewConnection, endpoint: Endpoint) -> Self {
+        let connection = CommonConnection::new(conn).await;
         Self {
             endpoint,
             connection,
@@ -74,17 +70,12 @@ impl Client {
     pub async fn wait_idle(&self) {
         self.endpoint.wait_idle().await;
     }
-}
 
-//
-
-#[async_trait]
-impl Connection for Client {
-    async fn read(&mut self) -> Bytes {
+    pub async fn read(&mut self) -> Option<Bytes> {
         self.connection.read().await
     }
 
-    async fn send(&mut self, message: Bytes, flags: PacketFlags) {
+    pub async fn send(&mut self, message: Bytes, flags: PacketFlags) -> Option<()> {
         self.connection.send(message, flags).await
     }
 }

@@ -1,6 +1,9 @@
-use rnet::{client::Client, connection::Connection};
+use rnet::client::Client;
 use std::{ops::Range, time::Duration};
-use tokio::{runtime::Runtime, time::sleep};
+use tokio::{
+    runtime::Runtime,
+    time::{sleep, Instant},
+};
 
 //
 
@@ -12,28 +15,43 @@ pub fn main() {
         const RANGE: Range<i32> = 0..20000;
 
         println!("receiving unordered");
+        let timer = Instant::now();
         for i in RANGE {
-            let message = client.read().await;
+            let message = client.read().await.unwrap();
             let message = std::str::from_utf8(&message[..]).unwrap();
-            if Ok(i) != message.parse::<i32>() {
-                println!("  - got out of order");
+            let expect = format!("a {i}");
+            if message != expect {
+                println!("out of order")
             }
         }
+        println!("receiving done: {:?}", timer.elapsed());
 
         sleep(Duration::from_secs(1)).await;
 
         println!("receiving ordered");
-        for _ in RANGE {
-            let message = client.read().await;
-            let _ = std::str::from_utf8(&message[..]).unwrap();
+        let timer = Instant::now();
+        for i in RANGE {
+            let message = client.read().await.unwrap();
+            let message = std::str::from_utf8(&message[..]).unwrap();
+            let expect = format!("b {i}");
+            if message != expect {
+                println!("out of order")
+            }
         }
+        println!("receiving done: {:?}", timer.elapsed());
 
         sleep(Duration::from_secs(1)).await;
 
         println!("receiving unreliable");
-        for _ in RANGE {
-            let message = client.read().await;
-            let _ = std::str::from_utf8(&message[..]).unwrap();
+        let timer = Instant::now();
+        for i in RANGE {
+            let message = client.read().await.unwrap();
+            let message = std::str::from_utf8(&message[..]).unwrap();
+            let expect = format!("c {i}");
+            if message != expect {
+                println!("out of order")
+            }
         }
+        println!("receiving done: {:?}", timer.elapsed());
     });
 }

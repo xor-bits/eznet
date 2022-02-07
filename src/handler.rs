@@ -1,8 +1,4 @@
-use crate::{
-    connection::{CommonConnection, Connection},
-    packet::PacketFlags,
-};
-use async_trait::async_trait;
+use crate::{connection::CommonConnection, packet::PacketFlags};
 use bytes::Bytes;
 use quinn::NewConnection;
 
@@ -15,24 +11,19 @@ pub struct Handler {
 //
 
 impl Handler {
-    pub fn new(conn: NewConnection) -> Self {
+    pub async fn new(conn: NewConnection) -> Self {
         let remote = conn.connection.remote_address();
         log::debug!("server connected: {remote}");
 
-        let connection = CommonConnection::new(conn);
+        let connection = CommonConnection::new(conn).await;
         Self { connection }
     }
-}
 
-//
-
-#[async_trait]
-impl Connection for Handler {
-    async fn read(&mut self) -> Bytes {
+    pub async fn read(&mut self) -> Option<Bytes> {
         self.connection.read().await
     }
 
-    async fn send(&mut self, message: Bytes, flags: PacketFlags) {
+    pub async fn send(&mut self, message: Bytes, flags: PacketFlags) -> Option<()> {
         self.connection.send(message, flags).await
     }
 }

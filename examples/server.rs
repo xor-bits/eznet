@@ -1,4 +1,4 @@
-use rnet::{connection::Connection, packet::PacketFlags, server::Server};
+use rnet::{packet::PacketFlags, server::Server};
 use std::{ops::Range, time::Duration};
 use tokio::{runtime::Runtime, time::sleep};
 
@@ -16,7 +16,7 @@ pub fn main() {
         println!("sending unordered");
         for i in RANGE {
             handler
-                .send(format!("{i}").into(), PacketFlags::IMPORTANT_UNORDERED)
+                .send(format!("a {i}").into(), PacketFlags::PRESET_IMPORTANT)
                 .await;
         }
 
@@ -26,15 +26,17 @@ pub fn main() {
         println!("sending ordered");
         for i in RANGE {
             handler
-                .send(format!("{i}").into(), PacketFlags::IMPORTANT_ORDERED)
+                .send(format!("b {i}").into(), PacketFlags::PRESET_ASSERTIVE)
                 .await;
         }
+
+        sleep(Duration::from_secs(1)).await;
 
         // unreliable test
         println!("sending unreliable");
         for i in RANGE {
             handler
-                .send(format!("{i}").into(), PacketFlags::OPTIONAL_UNORDERED)
+                .send(format!("c {i}").into(), PacketFlags::PRESET_DEFAULT)
                 .await;
         }
 

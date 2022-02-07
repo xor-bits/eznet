@@ -1,20 +1,29 @@
+use crate::{handler::Handler, packet::PacketFlags};
 use futures::StreamExt;
 use quinn::{Endpoint, Incoming, ServerConfig};
 use rustls::Certificate;
-use std::net::SocketAddr;
-
-use crate::{handler::Handler, packet::PacketFlags};
+use serde::{de::DeserializeOwned, Serialize};
+use std::{marker::PhantomData, net::SocketAddr};
 
 //
 
-pub struct Server {
+pub struct Server<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     endpoint: Endpoint,
     incoming: Incoming,
+    _p: PhantomData<(S, R)>,
 }
 
 //
 
-impl Server {
+impl<S, R> Server<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     pub fn new(addr: SocketAddr) -> Self {
         let config = Self::default_config();
         Self::from_config(config, addr)
@@ -33,10 +42,14 @@ impl Server {
 
     pub fn from_config(config: ServerConfig, addr: SocketAddr) -> Self {
         let (endpoint, incoming) = Endpoint::server(config, addr).unwrap();
-        Self { endpoint, incoming }
+        Self {
+            endpoint,
+            incoming,
+            _p: Default::default(),
+        }
     }
 
-    pub async fn accept(&mut self) -> Handler {
+    pub async fn accept(&mut self) -> Handler<S, R> {
         Handler::new(self.incoming.next().await.unwrap().await.unwrap()).await
     }
 

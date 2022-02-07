@@ -16,7 +16,7 @@ pub fn main() {
         println!("sending unordered");
         for i in RANGE {
             handler
-                .send(format!("a {i}").into(), PacketFlags::PRESET_IMPORTANT)
+                .send(format!("a {i}"), PacketFlags::PRESET_IMPORTANT)
                 .await
                 .unwrap();
         }
@@ -25,7 +25,7 @@ pub fn main() {
         println!("sending ordered");
         for i in RANGE {
             handler
-                .send(format!("b {i}").into(), PacketFlags::PRESET_ASSERTIVE)
+                .send(format!("b {i}"), PacketFlags::PRESET_ASSERTIVE)
                 .await
                 .unwrap();
         }
@@ -34,7 +34,7 @@ pub fn main() {
         println!("sending unreliable");
         for i in RANGE {
             handler
-                .send(format!("c {i}").into(), PacketFlags::PRESET_DEFAULT)
+                .send(format!("c {i}"), PacketFlags::PRESET_DEFAULT)
                 .await
                 .unwrap();
         }
@@ -43,7 +43,7 @@ pub fn main() {
         println!("receiving custom");
         let timer = Instant::now();
         for i in RANGE {
-            let message: i32 = handler.read_ty().await.unwrap();
+            let message: i32 = handler.read().await.unwrap();
             let expect = i * 8;
             if message != expect {
                 println!("out of order")

@@ -1,25 +1,33 @@
 use super::{Framed, FramedRead, FramedWrite};
 use crate::packet::Packet;
-use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use quinn::{Connection, IncomingBiStreams};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tokio_serde::formats::Bincode;
 use tokio_util::codec::LengthDelimitedCodec;
 
 //
 
-pub struct Ordered {
+pub struct Ordered<S, R>
+where
+    S: Serialize + Unpin,
+    R: DeserializeOwned + Unpin,
+{
     connection: Arc<Connection>,
     incoming: IncomingBiStreams,
 
-    writer: Option<Framed<FramedWrite>>,
-    reader: Option<Framed<FramedRead>>,
+    writer: Option<Framed<S, FramedWrite>>,
+    reader: Option<Framed<R, FramedRead>>,
 }
 
 //
 
-impl Ordered {
+impl<S, R> Ordered<S, R>
+where
+    S: Serialize + Unpin,
+    R: DeserializeOwned + Unpin,
+{
     pub async fn new(connection: Arc<Connection>, incoming: IncomingBiStreams) -> Self {
         Self {
             connection,
@@ -30,7 +38,7 @@ impl Ordered {
         }
     }
 
-    async fn get_writer(&mut self) -> &'_ mut Framed<FramedWrite> {
+    async fn get_writer(&mut self) -> &'_ mut Framed<S, FramedWrite> {
         let stream = &mut self.writer;
         match stream {
             Some(stream) => stream,
@@ -45,7 +53,7 @@ impl Ordered {
         }
     }
 
-    async fn get_reader(&mut self) -> &'_ mut Framed<FramedRead> {
+    async fn get_reader(&mut self) -> &'_ mut Framed<R, FramedRead> {
         let stream = &mut self.reader;
         match stream {
             Some(stream) => stream,
@@ -60,7 +68,7 @@ impl Ordered {
         }
     }
 
-    pub async fn write(&mut self, message: Bytes) -> Option<()> {
+    pub async fn write(&mut self, message: S) -> Option<()> {
         self.get_writer()
             .await
             .send(Packet::new(None, message))
@@ -68,7 +76,7 @@ impl Ordered {
             .ok()
     }
 
-    pub async fn read(&mut self) -> Option<Bytes> {
+    pub async fn read(&mut self) -> Option<R> {
         Some(self.get_reader().await.next().await?.ok()?.payload)
     }
 }

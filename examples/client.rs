@@ -15,8 +15,7 @@ pub fn main() {
         println!("receiving unordered");
         let timer = Instant::now();
         for i in RANGE {
-            let message = client.read().await.unwrap();
-            let message = std::str::from_utf8(&message[..]).unwrap();
+            let message: String = client.read().await.unwrap();
             let expect = format!("a {i}");
             if message != expect {
                 // println!("out of order")
@@ -28,8 +27,7 @@ pub fn main() {
         println!("receiving ordered");
         let timer = Instant::now();
         for i in RANGE {
-            let message = client.read().await.unwrap();
-            let message = std::str::from_utf8(&message[..]).unwrap();
+            let message: String = client.read().await.unwrap();
             let expect = format!("b {i}");
             if message != expect {
                 // println!("out of order")
@@ -41,8 +39,7 @@ pub fn main() {
         println!("receiving unreliable");
         let timer = Instant::now();
         for i in RANGE {
-            let message = client.read().await.unwrap();
-            let message = std::str::from_utf8(&message[..]).unwrap();
+            let message: String = client.read().await.unwrap();
             let expect = format!("c {i}");
             if message != expect {
                 // println!("out of order")
@@ -54,7 +51,7 @@ pub fn main() {
         println!("sending custom");
         for i in RANGE {
             client
-                .send_ty(&(i * 8), PacketFlags::PRESET_IMPORTANT)
+                .send(i * 8, PacketFlags::PRESET_IMPORTANT)
                 .await
                 .unwrap();
         }

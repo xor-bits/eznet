@@ -3,6 +3,7 @@ use anyhow::{format_err, Result};
 use bytes::Bytes;
 use futures::StreamExt;
 use quinn::{Connection, Datagrams, SendDatagramError};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tokio::{
     spawn,
@@ -11,14 +12,22 @@ use tokio::{
 
 //
 
-pub struct Unreliable {
-    send: UnboundedSender<Packet>,
-    recv: UnboundedReceiver<Packet>,
+pub struct Unreliable<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
+    send: UnboundedSender<Packet<S>>,
+    recv: UnboundedReceiver<Packet<R>>,
 }
 
 //
 
-impl Unreliable {
+impl<S, R> Unreliable<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     pub async fn new(connection: Arc<Connection>, datagrams: Datagrams) -> Self {
         let (send, t_recv) = unbounded_channel();
         let (t_send, recv) = unbounded_channel();
@@ -39,7 +48,7 @@ impl Unreliable {
 
     async fn writer_loop(
         connection: Arc<Connection>,
-        mut recv: UnboundedReceiver<Packet>,
+        mut recv: UnboundedReceiver<Packet<S>>,
     ) -> Result<()> {
         let config = bincode::config::standard();
         let mut seq = 0;
@@ -67,7 +76,7 @@ impl Unreliable {
         }
     }
 
-    async fn reader_loop(mut datagrams: Datagrams, send: UnboundedSender<Packet>) -> Result<()> {
+    async fn reader_loop(mut datagrams: Datagrams, send: UnboundedSender<Packet<R>>) -> Result<()> {
         let config = bincode::config::standard();
         loop {
             let bytes = datagrams
@@ -77,18 +86,18 @@ impl Unreliable {
 
             let (packet, _) = bincode::serde::decode_from_slice(&bytes, config)?;
 
-            send.send(packet)?;
+            send.send(packet).map_err(|_| format_err!("Stopped"))?;
         }
     }
 
-    pub async fn write(&mut self, message: Bytes, seq: bool) -> Option<()> {
+    pub async fn write(&mut self, message: S, seq: bool) -> Option<()> {
         self.send
             .send(Packet::new(if seq { Some(0) } else { None }, message))
             .ok()?;
         Some(())
     }
 
-    pub async fn read(&mut self) -> Option<Bytes> {
+    pub async fn read(&mut self) -> Option<R> {
         let packet = self.recv.recv().await?;
         Some(packet.payload)
     }

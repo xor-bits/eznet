@@ -1,7 +1,7 @@
 use self::{ordered::Ordered, unordered::Unordered, unreliable::Unreliable};
 use crate::packet::{Packet, PacketFlags};
-use bytes::Bytes;
 use quinn::{Connection, NewConnection, RecvStream, SendStream};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tokio::{join, select};
 use tokio_serde::formats::Bincode;
@@ -26,20 +26,28 @@ pub trait Connection {
 
 //
 
-pub struct CommonConnection {
+pub struct CommonConnection<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     pub connection: Arc<Connection>,
-    ordered: Ordered,
-    unordered: Unordered,
-    unreliable: Unreliable,
+    ordered: Ordered<S, R>,
+    unordered: Unordered<S, R>,
+    unreliable: Unreliable<S, R>,
 }
 
 pub type FramedWrite = tokio_util::codec::FramedWrite<SendStream, LengthDelimitedCodec>;
 pub type FramedRead = tokio_util::codec::FramedRead<RecvStream, LengthDelimitedCodec>;
-pub type Framed<T> = tokio_serde::Framed<T, Packet, Packet, Bincode<Packet, Packet>>;
+pub type Framed<P, T> = tokio_serde::Framed<T, Packet<P>, Packet<P>, Bincode<Packet<P>, Packet<P>>>;
 
 //
 
-impl CommonConnection {
+impl<S, R> CommonConnection<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     pub async fn new(conn: NewConnection) -> Self {
         let NewConnection {
             connection,
@@ -65,21 +73,21 @@ impl CommonConnection {
 
     // Readers
 
-    pub async fn read(&mut self) -> Option<Bytes> {
+    pub async fn read(&mut self) -> Option<R> {
         let a = async { self.ordered.read().await };
         let b = async { self.unordered.read().await };
         let c = async { self.unreliable.read().await };
 
         select! {
-            bytes = a => bytes,
-            bytes = b => bytes,
-            bytes = c => bytes
+            message = a => message,
+            message = b => message,
+            message = c => message
         }
     }
 
     // Senders
 
-    pub async fn send(&mut self, message: Bytes, flags: PacketFlags) -> Option<()> {
+    pub async fn send(&mut self, message: S, flags: PacketFlags) -> Option<()> {
         const RO: PacketFlags = PacketFlags::RELIABLE.union(PacketFlags::ORDERED);
         const RS: PacketFlags = PacketFlags::RELIABLE.union(PacketFlags::SEQUENCED);
         const RU: PacketFlags = PacketFlags::RELIABLE.union(PacketFlags::UNORDERED);

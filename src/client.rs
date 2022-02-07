@@ -1,6 +1,4 @@
 use crate::{connection::CommonConnection, packet::PacketFlags};
-use bincode::config::Configuration;
-use bytes::Bytes;
 use quinn::{ClientConfig, Endpoint, NewConnection};
 use rustls::{client::ServerCertVerifier, Certificate};
 use serde::{de::DeserializeOwned, Serialize};
@@ -11,14 +9,22 @@ use std::{
 
 //
 
-pub struct Client {
+pub struct Client<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     endpoint: Endpoint,
-    connection: CommonConnection,
+    connection: CommonConnection<S, R>,
 }
 
 //
 
-impl Client {
+impl<S, R> Client<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     pub async fn new(addr: SocketAddr) -> Self {
         let config = Self::default_config();
         let mut endpoint =
@@ -73,29 +79,11 @@ impl Client {
         self.endpoint.wait_idle().await;
     }
 
-    pub async fn read(&mut self) -> Option<Bytes> {
+    pub async fn read(&mut self) -> Option<R> {
         self.connection.read().await
     }
 
-    pub async fn send(&mut self, message: Bytes, flags: PacketFlags) -> Option<()> {
+    pub async fn send(&mut self, message: S, flags: PacketFlags) -> Option<()> {
         self.connection.send(message, flags).await
-    }
-
-    pub async fn read_ty<T>(&mut self) -> Option<T>
-    where
-        T: DeserializeOwned,
-    {
-        const CONFIG: Configuration = bincode::config::standard();
-        let bytes = self.read().await?;
-        Some(bincode::serde::decode_from_slice(&bytes, CONFIG).unwrap().0)
-    }
-
-    pub async fn send_ty<T>(&mut self, message: &T, flags: PacketFlags) -> Option<()>
-    where
-        T: Serialize,
-    {
-        const CONFIG: Configuration = bincode::config::standard();
-        let message = bincode::serde::encode_to_vec(message, CONFIG).unwrap();
-        self.send(message.into(), flags).await
     }
 }

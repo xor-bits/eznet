@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 //
@@ -69,13 +68,13 @@ pub struct PacketHeader {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Packet {
+pub struct Packet<T> {
     pub header: PacketHeader,
-    pub payload: Bytes,
+    pub payload: T,
 }
 
-impl Packet {
-    pub fn new(seq: Option<u16>, payload: Bytes) -> Self {
+impl<T> Packet<T> {
+    pub fn new(seq: Option<u16>, payload: T) -> Self {
         Self {
             header: PacketHeader { seq },
             payload,

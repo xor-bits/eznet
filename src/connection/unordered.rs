@@ -1,8 +1,8 @@
 use super::{Framed, FramedRead, FramedWrite};
 use crate::packet::Packet;
-use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use quinn::{Connection, ConnectionError, IncomingUniStreams};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -16,14 +16,22 @@ use tokio_util::codec::LengthDelimitedCodec;
 
 //
 
-pub struct Unordered {
-    send: UnboundedSender<Packet>,
-    recv: UnboundedReceiver<Packet>,
+pub struct Unordered<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
+    send: UnboundedSender<Packet<S>>,
+    recv: UnboundedReceiver<Packet<R>>,
 }
 
 //
 
-impl Unordered {
+impl<S, R> Unordered<S, R>
+where
+    S: Send + Serialize + Unpin + 'static,
+    R: Send + DeserializeOwned + Unpin + 'static,
+{
     pub async fn new(connection: Arc<Connection>, incoming: IncomingUniStreams) -> Self {
         let (send, t_recv) = unbounded_channel();
         let (t_send, recv) = unbounded_channel();
@@ -44,7 +52,7 @@ impl Unordered {
 
     async fn writer_loop(
         connection: Arc<Connection>,
-        mut recv: UnboundedReceiver<Packet>,
+        mut recv: UnboundedReceiver<Packet<S>>,
     ) -> Result<(), ConnectionError> {
         let mut seq = 0;
 
@@ -80,7 +88,7 @@ impl Unordered {
 
     async fn reader_loop(
         mut incoming: IncomingUniStreams,
-        send: UnboundedSender<Packet>,
+        send: UnboundedSender<Packet<R>>,
     ) -> Result<(), ConnectionError> {
         let keep_running = Arc::new(AtomicBool::new(true));
 
@@ -118,14 +126,14 @@ impl Unordered {
         }
     }
 
-    pub async fn write(&mut self, message: Bytes, seq: bool) -> Option<()> {
+    pub async fn write(&mut self, message: S, seq: bool) -> Option<()> {
         self.send
             .send(Packet::new(if seq { Some(0) } else { None }, message))
             .ok()?;
         Some(())
     }
 
-    pub async fn read(&mut self) -> Option<Bytes> {
+    pub async fn read(&mut self) -> Option<R> {
         let packet = self.recv.recv().await?;
         Some(packet.payload)
     }

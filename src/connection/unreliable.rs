@@ -53,7 +53,7 @@ where
         let config = bincode::config::standard();
         let mut seq = 0;
 
-        // TODO: feed packets and send them every 2ms
+        // TODO: feed packets and send them every 1ms
 
         loop {
             // TODO: let..else
@@ -68,7 +68,7 @@ where
             match connection.send_datagram(Bytes::from(bytes)) {
                 Ok(_) => {}
                 Err(SendDatagramError::TooLarge) => {
-                    log::debug!("Datagram was too large");
+                    log::debug!("Datagram was too large, dropping.");
                     continue;
                 }
                 Err(err) => break Err(err.into()),

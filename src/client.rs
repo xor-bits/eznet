@@ -3,7 +3,7 @@ use quinn::{ClientConfig, Endpoint, NewConnection};
 use rustls::{client::ServerCertVerifier, Certificate};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     sync::Arc,
 };
 
@@ -26,9 +26,14 @@ where
     R: Send + DeserializeOwned + Unpin + 'static,
 {
     pub async fn new(addr: SocketAddr) -> Self {
+        let listen = if addr.is_ipv6() {
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0).into()
+        } else {
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0).into()
+        };
+
         let config = Self::default_config();
-        let mut endpoint =
-            Endpoint::client(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0).into()).unwrap();
+        let mut endpoint = Endpoint::client(listen).unwrap();
         endpoint.set_default_client_config(config);
 
         let conn = endpoint.connect(addr, "localhost").unwrap().await.unwrap();

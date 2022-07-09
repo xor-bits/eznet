@@ -1,3 +1,4 @@
+use crate::{packet::Packet, unwrap_or};
 use bytes::{Bytes, BytesMut};
 use futures::{stream::SelectAll, StreamExt};
 use quinn::{ConnectionError, Datagrams, IncomingUniStreams, RecvStream};
@@ -10,7 +11,7 @@ use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 pub async fn reader_worker_job(
     mut uni_streams: IncomingUniStreams,
     mut datagrams: Datagrams,
-    mut send: mpsc::Sender<Bytes>,
+    mut send: mpsc::Sender<Packet>,
     mut should_stop: broadcast::Receiver<()>,
 ) {
     let mut recv_streams = SelectAll::new();
@@ -45,52 +46,64 @@ fn handle_new_stream(
     stream: Option<Result<FRead, ConnectionError>>,
     recv_streams: &mut SelectAll<FRead>,
 ) -> bool {
-    match stream {
-        Some(Ok(stream)) => {
-            recv_streams.push(stream);
-            false
-        }
-        Some(Err(err)) => {
-            log::debug!("Disconnecting, reason: {err} (a)");
-            true
-        }
-        _ => {
-            log::debug!("Empty new stream");
-            true
-        }
-    }
+    let stream = stream.ok_or("Empty new stream");
+
+    let stream = unwrap_or!(stream, {
+        return true;
+    });
+
+    let stream = unwrap_or!(stream, {
+        return true;
+    });
+
+    recv_streams.push(stream);
+    false
 }
 
 // returns true if reader should stop
-async fn handle_old_stream(bytes: Result<BytesMut, Error>, send: &mut mpsc::Sender<Bytes>) -> bool {
-    match bytes {
-        Ok(bytes) => send.send(bytes.into()).await.is_err(),
-        Err(err) => {
-            log::debug!("Disconnecting, reason: {err} (b)");
-            true
-        } /* _ => {
-              log::debug!("Empty old stream");
-              true
-          } */
-    }
+async fn handle_old_stream(
+    bytes: Result<BytesMut, Error>,
+    send: &mut mpsc::Sender<Packet>,
+) -> bool {
+    let packet = bytes.map(|b| bincode::deserialize(&b[..]));
+
+    let packet = unwrap_or!(packet, {
+        return true;
+    });
+
+    let packet = unwrap_or!(packet, {
+        return true;
+    });
+
+    // TODO: actually drop 'old' sequenced packets
+
+    send.send(packet).await.is_err()
 }
 
 // returns true if reader should stop
 async fn handle_datagram(
     bytes: Option<Result<Bytes, ConnectionError>>,
-    send: &mut mpsc::Sender<Bytes>,
+    send: &mut mpsc::Sender<Packet>,
 ) -> bool {
-    match bytes {
-        Some(Ok(bytes)) => send.send(bytes).await.is_err(),
-        Some(Err(err)) => {
-            log::debug!("Disconnecting, reason: {err} (c)");
-            true
-        }
-        _ => {
-            log::debug!("Empty datagram");
-            true
-        }
-    }
+    let packet = bytes
+        .ok_or("Empty datagram")
+        .map(|b| b.map(|b| bincode::deserialize(&b[..])));
+
+    let packet = unwrap_or!(packet, {
+        return true;
+    });
+
+    let packet = unwrap_or!(packet, {
+        return true;
+    });
+
+    let packet = unwrap_or!(packet, {
+        return true;
+    });
+
+    // TODO: actually drop 'old' sequenced packets
+
+    send.send(packet).await.is_err()
 }
 
 //

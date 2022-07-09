@@ -1,79 +1,109 @@
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 
 //
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PacketType {
-    ReliableOrdered(Option<u16>),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(C)]
+pub enum PacketHeader {
+    /// no packets are dropped
+    ///
+    /// ordered
+    Ordered { stream_id: Option<u8> },
+
+    /// old packets are dropped
+    ///
+    /// ordered
+    ReliableSequenced { stream_id: Option<u8>, seq_id: u16 },
+
+    /// no packets are dropped
+    ///
+    /// not ordered
     ReliableUnordered,
+
+    /// 'random' and old packets are dropped
+    ///
+    /// ordered
+    UnreliableSequenced { stream_id: Option<u8>, seq_id: u16 },
+
+    /// 'random' packets are dropped
+    ///
+    /// not ordered
     Unreliable,
 }
 
 //
 
-impl Default for PacketType {
+impl Default for PacketHeader {
     fn default() -> Self {
-        Self::ReliableOrdered(None)
+        Self::Ordered { stream_id: None }
     }
 }
 
 //
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Packet {
+    pub header: PacketHeader,
     pub bytes: Bytes,
-    pub ty: PacketType,
 }
 
 //
 
 impl Packet {
-    pub fn new(bytes: Bytes) -> Self {
+    /// no packets are dropped
+    ///
+    /// ordered
+    pub fn ordered(bytes: Bytes, stream: Option<u8>) -> Self {
         Self {
             bytes,
-            ty: Default::default(),
+            header: PacketHeader::Ordered { stream_id: stream },
         }
     }
 
-    pub fn copy_from_slice(bytes: &[u8]) -> Self {
-        Self::new(Bytes::copy_from_slice(bytes))
+    /// old packets are dropped
+    ///
+    /// ordered
+    pub fn reliable_sequenced(bytes: Bytes, stream: Option<u8>) -> Self {
+        Self {
+            bytes,
+            header: PacketHeader::ReliableSequenced {
+                stream_id: stream,
+                seq_id: 0,
+            },
+        }
     }
 
-    pub fn reliable_ordered(bytes: Bytes, stream: Option<u16>) -> Self {
-        Self::new(bytes).as_reliable_ordered(stream)
-    }
-
+    /// no packets are dropped
+    ///
+    /// not ordered
     pub fn reliable_unordered(bytes: Bytes) -> Self {
-        Self::new(bytes).as_reliable_unordered()
+        Self {
+            bytes,
+            header: PacketHeader::ReliableUnordered,
+        }
     }
 
+    /// 'random' and old packets are dropped
+    ///
+    /// ordered
+    pub fn unreliable_sequenced(bytes: Bytes, stream: Option<u8>) -> Self {
+        Self {
+            bytes,
+            header: PacketHeader::UnreliableSequenced {
+                stream_id: stream,
+                seq_id: 0,
+            },
+        }
+    }
+
+    /// 'random' packets are dropped
+    ///
+    /// not ordered
     pub fn unreliable(bytes: Bytes) -> Self {
-        Self::new(bytes).as_unreliable()
-    }
-
-    pub fn with_type(mut self, ty: PacketType) -> Self {
-        self.ty = ty;
-        self
-    }
-
-    pub fn as_reliable_ordered(mut self, stream: Option<u16>) -> Self {
-        self.ty = PacketType::ReliableOrdered(stream);
-        self
-    }
-
-    pub fn as_reliable_unordered(mut self) -> Self {
-        self.ty = PacketType::ReliableUnordered;
-        self
-    }
-
-    pub fn as_unreliable(mut self) -> Self {
-        self.ty = PacketType::Unreliable;
-        self
-    }
-}
-
-impl<T: Into<Bytes>> From<T> for Packet {
-    fn from(bytes: T) -> Self {
-        Self::new(bytes.into())
+        Self {
+            bytes,
+            header: PacketHeader::Unreliable,
+        }
     }
 }

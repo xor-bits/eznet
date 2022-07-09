@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use rnet::{listener::Listener, packet::Packet};
 use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -14,8 +15,11 @@ pub async fn main() {
 
     let mut i = 0;
     for _ in 0..20000_u16 {
-        let j = u16::from_be_bytes((&socket.recv().await.unwrap()[..]).try_into().unwrap());
-        log::info!("{j}");
+        let j = u16::from_be_bytes(
+            (&socket.recv().await.unwrap().bytes[..])
+                .try_into()
+                .unwrap(),
+        );
         if j < i {
             log::error!("Out of order packet");
         }
@@ -25,7 +29,7 @@ pub async fn main() {
     log::info!("all received");
 
     socket
-        .send(Packet::copy_from_slice(b"continue"))
+        .send(Packet::ordered(Bytes::copy_from_slice(b"continue"), None))
         .await
         .unwrap();
 
@@ -34,7 +38,11 @@ pub async fn main() {
     let mut i = 0;
     let mut c = 0;
     for _ in 0..20000_u16 {
-        let j = u16::from_be_bytes((&socket.recv().await.unwrap()[..]).try_into().unwrap());
+        let j = u16::from_be_bytes(
+            (&socket.recv().await.unwrap().bytes[..])
+                .try_into()
+                .unwrap(),
+        );
         if j < i {
             c += 1;
         }
@@ -44,7 +52,7 @@ pub async fn main() {
     log::info!("all received, {c}/20000 out of order");
 
     socket
-        .send(Packet::copy_from_slice(b"continue"))
+        .send(Packet::ordered(Bytes::copy_from_slice(b"continue"), None))
         .await
         .unwrap();
 

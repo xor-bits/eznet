@@ -1,6 +1,11 @@
+use bytes::Bytes;
 use futures::future::join_all;
 use rnet::{packet::Packet, socket::Socket};
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::{
+    net::{Ipv4Addr, SocketAddrV4},
+    time::Duration,
+};
+use tokio::time::sleep;
 
 //
 
@@ -16,7 +21,10 @@ pub async fn main() {
 
     for i in 0..20000_u16 {
         socket
-            .send(Packet::copy_from_slice(&i.to_be_bytes()).as_reliable_ordered(None))
+            .send(Packet::ordered(
+                Bytes::copy_from_slice(&i.to_be_bytes()),
+                None,
+            ))
             .await
             .unwrap();
     }
@@ -29,7 +37,9 @@ pub async fn main() {
 
     for i in 0..20000_u16 {
         socket
-            .send(Packet::copy_from_slice(&i.to_be_bytes()).as_reliable_unordered())
+            .send(Packet::reliable_unordered(Bytes::copy_from_slice(
+                &i.to_be_bytes(),
+            )))
             .await
             .unwrap();
     }
@@ -44,7 +54,9 @@ pub async fn main() {
         let socket = &socket;
         async move {
             socket
-                .send(Packet::copy_from_slice(b"some unreliable bytes").as_unreliable())
+                .send(Packet::unreliable(Bytes::copy_from_slice(
+                    b"some unreliable bytes",
+                )))
                 .await
                 .unwrap();
         }
@@ -52,4 +64,7 @@ pub async fn main() {
     .await;
 
     log::info!("all sent");
+
+    // give a bit more time for unreliable packets to be sent
+    sleep(Duration::from_millis(100)).await;
 }

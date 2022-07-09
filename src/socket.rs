@@ -1,5 +1,4 @@
 use crate::{packet::Packet, reader::reader_worker_job, writer::writer_worker_job};
-use bytes::Bytes;
 use futures::future::join;
 use quinn::{ClientConfig, Connection, Endpoint, NewConnection};
 use quinn_proto::ConnectionStats;
@@ -28,7 +27,7 @@ pub struct SocketInner {
     connection: Connection,
 
     send: mpsc::Sender<Packet>,
-    recv: mpsc::Receiver<Bytes>,
+    recv: mpsc::Receiver<Packet>,
 
     write_worker: JoinHandle<()>,
     read_worker: JoinHandle<()>,
@@ -59,6 +58,11 @@ impl Socket {
         addr: SocketAddr,
         config: ClientConfig,
     ) -> Result<Self, ConnectError> {
+        // TODO: encryption doesn't protect
+        // from MITM attacks at the moment.
+        // Add certificates, private keys,
+        // server names and DNS
+
         let listen = if addr.is_ipv6() {
             SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0).into()
         } else {
@@ -100,7 +104,7 @@ impl Socket {
         ClientConfig::new(Arc::new(crypto))
     }
 
-    pub async fn recv(&mut self) -> Option<Bytes> {
+    pub async fn recv(&mut self) -> Option<Packet> {
         self.recv.recv().await
     }
 

@@ -1,56 +1,59 @@
-use rnet::{packet::PacketFlags, server::Server};
-use std::ops::Range;
-use tokio::{runtime::Runtime, time::Instant};
+use rnet::{listener::Listener, packet::Packet};
+use std::net::{Ipv4Addr, SocketAddrV4};
 
 //
 
-pub fn main() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let mut server = Server::new("0.0.0.0:13331".parse().unwrap());
-        let mut handler = server.accept().await;
+#[tokio::main]
+pub async fn main() {
+    env_logger::init();
 
-        const RANGE: Range<i32> = 0..20000;
+    let mut listener = Listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331).into());
+    let mut socket = listener.next().await.unwrap();
 
-        // unordered test
-        println!("sending unordered");
-        for i in RANGE {
-            handler
-                .send(format!("a {i}"), PacketFlags::PRESET_IMPORTANT)
-                .await
-                .unwrap();
+    log::info!("Start receiving ordered");
+
+    let mut i = 0;
+    for _ in 0..20000_u16 {
+        let j = u16::from_be_bytes((&socket.recv().await.unwrap()[..]).try_into().unwrap());
+        log::info!("{j}");
+        if j < i {
+            log::error!("Out of order packet");
         }
+        i = j;
+    }
 
-        // ordered test
-        println!("sending ordered");
-        for i in RANGE {
-            handler
-                .send(format!("b {i}"), PacketFlags::PRESET_ASSERTIVE)
-                .await
-                .unwrap();
+    log::info!("all received");
+
+    socket
+        .send(Packet::copy_from_slice(b"continue"))
+        .await
+        .unwrap();
+
+    log::info!("Start receiving unordered");
+
+    let mut i = 0;
+    let mut c = 0;
+    for _ in 0..20000_u16 {
+        let j = u16::from_be_bytes((&socket.recv().await.unwrap()[..]).try_into().unwrap());
+        if j < i {
+            c += 1;
         }
+        i = j;
+    }
 
-        // unreliable test
-        println!("sending unreliable");
-        for i in RANGE {
-            handler
-                .send(format!("c {i}"), PacketFlags::PRESET_DEFAULT)
-                .await
-                .unwrap();
-        }
+    log::info!("all received, {c}/20000 out of order");
 
-        // custom test
-        println!("receiving custom");
-        let timer = Instant::now();
-        for i in RANGE {
-            let message: i32 = handler.read().await.unwrap();
-            let expect = i * 8;
-            if message != expect {
-                println!("out of order")
-            }
-        }
-        println!("receiving done: {:?}", timer.elapsed());
+    socket
+        .send(Packet::copy_from_slice(b"continue"))
+        .await
+        .unwrap();
 
-        server.wait_idle().await;
-    });
+    log::info!("Start receiving unreliable");
+
+    let mut c = 0;
+    while let Some(_) = socket.recv().await {
+        c += 1
+    }
+
+    log::info!("Got {c}/20000 unreliable packets");
 }

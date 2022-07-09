@@ -1,100 +1,79 @@
-use bitflags::bitflags;
-use serde::{Deserialize, Serialize};
+use bytes::Bytes;
 
 //
 
-bitflags! {
-    pub struct PacketFlags: u8 {
-        // packet reliability
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketType {
+    ReliableOrdered(Option<u16>),
+    ReliableUnordered,
+    Unreliable,
+}
 
-        /// Packets may get dropped
-        ///
-        /// Fast and minimal overhead
-        const UNRELIABLE           = 0b_0000;
+//
 
-        /// Packets may get dropped but less likely
-        ///
-        /// Fast but 2x bandwidth
-        // const SEMI_RELIABLE        = 0b_0001;
-
-        /// Packets are resent if dropped
-        ///
-        /// Slow but reliable
-        const RELIABLE             = 0b_0010;
-
-        // packet ordering
-
-        /// Packets may be received out of order
-        ///
-        /// Fast and minimal overhead
-        const UNORDERED            = 0b_0000;
-
-        /// Packets out of order will be dropped
-        ///
-        /// Fast but less reliable
-        const SEQUENCED            = 0b_0100;
-
-        /// Packets are received in the same
-        /// order as sent
-        ///
-        /// Slow but ordered
-        const ORDERED              = 0b_1000;
-
-        //
-
-        /// Packets are received in order and
-        /// reliably
-        ///
-        /// Example: game chat
-        const PRESET_ASSERTIVE     = Self::RELIABLE.bits | Self::ORDERED.bits;
-
-        /// Packets might be received out of
-        /// order but will be received reliably
-        ///
-        /// Example: Server sending map pieces
-        /// to the client
-        const PRESET_IMPORTANT     = Self::RELIABLE.bits | Self::UNORDERED.bits;
-
-        /// Old packets are discarded
-        ///
-        /// Example: game player movement inputs
-        const PRESET_DEFAULT       = Self::UNRELIABLE.bits | Self::SEQUENCED.bits;
+impl Default for PacketType {
+    fn default() -> Self {
+        Self::ReliableOrdered(None)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PacketHeader {
-    pub seq: Option<u16>,
+//
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Packet {
+    pub bytes: Bytes,
+    pub ty: PacketType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Packet<T> {
-    pub header: PacketHeader,
-    pub payload: T,
-}
+//
 
-impl<T> Packet<T> {
-    pub fn new(seq: Option<u16>, payload: T) -> Self {
+impl Packet {
+    pub fn new(bytes: Bytes) -> Self {
         Self {
-            header: PacketHeader { seq },
-            payload,
+            bytes,
+            ty: Default::default(),
         }
     }
+
+    pub fn copy_from_slice(bytes: &[u8]) -> Self {
+        Self::new(Bytes::copy_from_slice(bytes))
+    }
+
+    pub fn reliable_ordered(bytes: Bytes, stream: Option<u16>) -> Self {
+        Self::new(bytes).as_reliable_ordered(stream)
+    }
+
+    pub fn reliable_unordered(bytes: Bytes) -> Self {
+        Self::new(bytes).as_reliable_unordered()
+    }
+
+    pub fn unreliable(bytes: Bytes) -> Self {
+        Self::new(bytes).as_unreliable()
+    }
+
+    pub fn with_type(mut self, ty: PacketType) -> Self {
+        self.ty = ty;
+        self
+    }
+
+    pub fn as_reliable_ordered(mut self, stream: Option<u16>) -> Self {
+        self.ty = PacketType::ReliableOrdered(stream);
+        self
+    }
+
+    pub fn as_reliable_unordered(mut self) -> Self {
+        self.ty = PacketType::ReliableUnordered;
+        self
+    }
+
+    pub fn as_unreliable(mut self) -> Self {
+        self.ty = PacketType::Unreliable;
+        self
+    }
 }
 
-// 4 packets
-//
-// seq:0
-// '4' + data
-//
-// seq:1
-// data
-//
-// seq:2
-// data
-//
-// seq:3
-// data
-/* pub struct Datagram {
-    pub
-} */
+impl<T: Into<Bytes>> From<T> for Packet {
+    fn from(bytes: T) -> Self {
+        Self::new(bytes.into())
+    }
+}

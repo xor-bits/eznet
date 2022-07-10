@@ -125,7 +125,8 @@ fn drop_sequenced(
     reliable_seq: &mut HashMap<Option<u8>, u16>,
     unreliable_seq: &mut HashMap<Option<u8>, u16>,
 ) -> Option<Packet> {
-    match packet.header {
+    // TODO: then_some
+    if match packet.header {
         PacketHeader::ReliableSequenced { stream_id, seq_id } => {
             drop_sequenced_common(stream_id, seq_id, reliable_seq)
         }
@@ -133,8 +134,11 @@ fn drop_sequenced(
             drop_sequenced_common(stream_id, seq_id, unreliable_seq)
         }
         _ => true,
+    } {
+        Some(packet)
+    } else {
+        None
     }
-    .then_some(packet)
 }
 
 fn drop_sequenced_common(

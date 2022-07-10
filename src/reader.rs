@@ -159,7 +159,7 @@ fn drop_sequenced_common(
 
     if ssi > rsi {
         // got packet that is 'newer'
-        *recv_seq_id = send_seq_id;
+        *recv_seq_id = send_seq_id + 1;
         true
     } else {
         // got packet that is 'older'

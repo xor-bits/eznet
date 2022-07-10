@@ -58,10 +58,7 @@ impl Socket {
         addr: SocketAddr,
         config: ClientConfig,
     ) -> Result<Self, ConnectError> {
-        // TODO: encryption doesn't protect
-        // from MITM attacks at the moment.
-        // Add certificates, private keys,
-        // server names and DNS
+        // TODO: 1, 2, see README.md
 
         let listen = if addr.is_ipv6() {
             SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0).into()
@@ -137,7 +134,7 @@ impl Socket {
             ..
         } = conn;
 
-        // TODO: configurable buffer capacity
+        // TODO: 4, see README.md
         let (worker_send, recv) = mpsc::channel(256);
         let (send, worker_recv) = mpsc::channel(256);
 
@@ -206,7 +203,10 @@ impl Drop for Socket {
                 let _ = should_stop.send(());
                 let _ = join(write_worker, read_worker).await;
                 let _ = (send, recv, connection, endpoint);
+
                 log::debug!("Closing socket");
+
+                // TODO: 3, see README.md
             });
         }
     }

@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use rnet::{listener::Listener, packet::Packet};
 use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -29,7 +28,7 @@ pub async fn main() {
     log::info!("all received");
 
     socket
-        .send(Packet::ordered(Bytes::copy_from_slice(b"continue"), None))
+        .send(Packet::ordered_from(b"continue", None))
         .await
         .unwrap();
 
@@ -52,7 +51,7 @@ pub async fn main() {
     log::info!("all received, {c}/20000 out of order");
 
     socket
-        .send(Packet::ordered(Bytes::copy_from_slice(b"continue"), None))
+        .send(Packet::ordered_from(b"continue", None))
         .await
         .unwrap();
 

@@ -61,12 +61,35 @@ impl Packet {
         }
     }
 
+    /// no packets are dropped
+    ///
+    /// ordered
+    pub fn ordered_from(bytes: &[u8], stream: Option<u8>) -> Self {
+        Self {
+            bytes: Bytes::copy_from_slice(bytes),
+            header: PacketHeader::Ordered { stream_id: stream },
+        }
+    }
+
     /// old packets are dropped
     ///
     /// ordered
     pub fn reliable_sequenced(bytes: Bytes, stream: Option<u8>) -> Self {
         Self {
             bytes,
+            header: PacketHeader::ReliableSequenced {
+                stream_id: stream,
+                seq_id: 0,
+            },
+        }
+    }
+
+    /// old packets are dropped
+    ///
+    /// ordered
+    pub fn reliable_sequenced_from(bytes: &[u8], stream: Option<u8>) -> Self {
+        Self {
+            bytes: Bytes::copy_from_slice(bytes),
             header: PacketHeader::ReliableSequenced {
                 stream_id: stream,
                 seq_id: 0,
@@ -84,6 +107,16 @@ impl Packet {
         }
     }
 
+    /// no packets are dropped
+    ///
+    /// not ordered
+    pub fn reliable_unordered_from(bytes: &[u8]) -> Self {
+        Self {
+            bytes: Bytes::copy_from_slice(bytes),
+            header: PacketHeader::ReliableUnordered,
+        }
+    }
+
     /// 'random' and old packets are dropped
     ///
     /// ordered
@@ -97,12 +130,35 @@ impl Packet {
         }
     }
 
+    /// 'random' and old packets are dropped
+    ///
+    /// ordered
+    pub fn unreliable_sequenced_from(bytes: &[u8], stream: Option<u8>) -> Self {
+        Self {
+            bytes: Bytes::copy_from_slice(bytes),
+            header: PacketHeader::UnreliableSequenced {
+                stream_id: stream,
+                seq_id: 0,
+            },
+        }
+    }
+
     /// 'random' packets are dropped
     ///
     /// not ordered
     pub fn unreliable(bytes: Bytes) -> Self {
         Self {
             bytes,
+            header: PacketHeader::Unreliable,
+        }
+    }
+
+    /// 'random' packets are dropped
+    ///
+    /// not ordered
+    pub fn unreliable_from(bytes: &[u8]) -> Self {
+        Self {
+            bytes: Bytes::copy_from_slice(bytes),
             header: PacketHeader::Unreliable,
         }
     }

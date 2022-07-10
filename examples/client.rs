@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use futures::future::join_all;
 use rnet::{packet::Packet, socket::Socket};
 use std::{
@@ -21,10 +20,7 @@ pub async fn main() {
 
     for i in 0..20000_u16 {
         socket
-            .send(Packet::ordered(
-                Bytes::copy_from_slice(&i.to_be_bytes()),
-                None,
-            ))
+            .send(Packet::ordered_from(&i.to_be_bytes(), None))
             .await
             .unwrap();
     }
@@ -37,9 +33,7 @@ pub async fn main() {
 
     for i in 0..20000_u16 {
         socket
-            .send(Packet::reliable_unordered(Bytes::copy_from_slice(
-                &i.to_be_bytes(),
-            )))
+            .send(Packet::reliable_unordered_from(&i.to_be_bytes()))
             .await
             .unwrap();
     }
@@ -54,9 +48,7 @@ pub async fn main() {
         let socket = &socket;
         async move {
             socket
-                .send(Packet::unreliable(Bytes::copy_from_slice(
-                    b"some unreliable bytes",
-                )))
+                .send(Packet::unreliable_from(b"some unreliable bytes"))
                 .await
                 .unwrap();
         }

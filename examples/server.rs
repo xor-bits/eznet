@@ -55,12 +55,19 @@ pub async fn main() {
         .await
         .unwrap();
 
-    log::info!("Start receiving unreliable");
+    log::info!("Start receiving unreliable sequenced");
 
+    let mut i = 0;
     let mut c = 0;
-    while let Some(_) = socket.recv().await {
-        c += 1
+    while let Some(packet) = socket.recv().await {
+        let j = u16::from_be_bytes((&packet.bytes[..]).try_into().unwrap());
+
+        c += 1;
+        if j < i {
+            log::error!("Out of order packet");
+        }
+        i = j;
     }
 
-    log::info!("Got {c}/20000 unreliable packets");
+    log::info!("Got {c}/20000 packets");
 }

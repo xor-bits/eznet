@@ -43,17 +43,15 @@ pub async fn main() {
     socket.recv().await.unwrap();
 
     log::info!("Start sending unreliable");
-
-    join_all((0..20000_u16).map(|_| {
-        let socket = &socket;
-        async move {
-            socket
-                .send(Packet::unreliable_from(b"some unreliable bytes"))
-                .await
-                .unwrap();
-        }
-    }))
-    .await;
+    for i in 0..20000_u16 {
+        socket
+            .send(Packet::unreliable_sequenced_from(
+                &i.to_be_bytes()[..],
+                None,
+            ))
+            .await
+            .unwrap();
+    }
 
     log::info!("all sent");
 

@@ -29,7 +29,7 @@ based, simple to use and async net lib with configurable reliability and orderin
 
 ```rust
 // examples/simple-server.rs
-let mut listener = Listener::bind("127.0.0.1:13331".parse().unwrap());
+let mut listener = Listener::bind("127.0.0.1:13331".parse().unwrap()).unwrap();
 
 while let Ok(socket) = listener.next().await {
     socket

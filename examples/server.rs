@@ -7,7 +7,8 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 pub async fn main() {
     env_logger::init();
 
-    let mut listener = Listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331).into());
+    let mut listener =
+        Listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331).into()).unwrap();
     let mut socket = listener.next().await.unwrap();
 
     log::info!("Start receiving ordered");

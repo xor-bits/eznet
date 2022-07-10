@@ -69,3 +69,9 @@ println!(
       get actually sent, all of them are buffered. (5)
 
 - [ ] actually drop 'old' sequenced packets (6)
+
+## License
+
+Licensed under either of [MIT license](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) license.
+
+I am not a lawyer.

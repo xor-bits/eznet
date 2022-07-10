@@ -28,7 +28,7 @@ pub async fn main() {
     log::info!("all received");
 
     socket
-        .send(Packet::ordered_from(b"continue", None))
+        .send(Packet::ordered_static(b"continue", None))
         .await
         .unwrap();
 
@@ -51,7 +51,7 @@ pub async fn main() {
     log::info!("all received, {c}/20000 out of order");
 
     socket
-        .send(Packet::ordered_from(b"continue", None))
+        .send(Packet::ordered_static(b"continue", None))
         .await
         .unwrap();
 

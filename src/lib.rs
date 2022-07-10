@@ -1,3 +1,5 @@
+pub use bytes;
+
 //
 
 pub mod listener;
@@ -9,10 +11,6 @@ pub mod socket;
 mod filter;
 mod reader;
 mod writer;
-
-//
-
-pub use bytes;
 
 //
 

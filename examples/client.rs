@@ -19,7 +19,7 @@ pub async fn main() {
 
     for i in 0..20000_u16 {
         socket
-            .send(Packet::ordered_from(&i.to_be_bytes(), None))
+            .send(Packet::ordered(&i.to_be_bytes(), None))
             .await
             .unwrap();
     }
@@ -32,7 +32,7 @@ pub async fn main() {
 
     for i in 0..20000_u16 {
         socket
-            .send(Packet::reliable_unordered_from(&i.to_be_bytes()))
+            .send(Packet::reliable_unordered(&i.to_be_bytes()))
             .await
             .unwrap();
     }
@@ -44,10 +44,7 @@ pub async fn main() {
     log::info!("Start sending unreliable");
     for i in 0..20000_u16 {
         socket
-            .send(Packet::unreliable_sequenced_from(
-                &i.to_be_bytes()[..],
-                None,
-            ))
+            .send(Packet::unreliable_sequenced(&i.to_be_bytes()[..], None))
             .await
             .unwrap();
     }

@@ -42,6 +42,12 @@ impl Default for PacketHeader {
 
 //
 
+/// If your data is static: do `Bytes::from(data)`
+/// first to avoid copying or use the constructors
+/// postfixed with `_static`.
+///
+/// TODO: specialization for
+/// 'static when it is stable
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Packet {
     pub header: PacketHeader,
@@ -54,31 +60,31 @@ impl Packet {
     /// no packets are dropped
     ///
     /// ordered
-    pub fn ordered(bytes: Bytes, stream: Option<u8>) -> Self {
+    pub fn ordered<B: IntoBytes>(bytes: B, stream_id: Option<u8>) -> Self {
         Self {
-            bytes,
-            header: PacketHeader::Ordered { stream_id: stream },
+            bytes: bytes.into_bytes(),
+            header: PacketHeader::Ordered { stream_id },
         }
     }
 
     /// no packets are dropped
     ///
     /// ordered
-    pub fn ordered_from(bytes: &[u8], stream: Option<u8>) -> Self {
+    pub fn ordered_static<B: IntoStaticBytes>(bytes: B, stream_id: Option<u8>) -> Self {
         Self {
-            bytes: Bytes::copy_from_slice(bytes),
-            header: PacketHeader::Ordered { stream_id: stream },
+            bytes: bytes.into_bytes(),
+            header: PacketHeader::Ordered { stream_id },
         }
     }
 
     /// old packets are dropped
     ///
     /// ordered
-    pub fn reliable_sequenced(bytes: Bytes, stream: Option<u8>) -> Self {
+    pub fn reliable_sequenced<B: IntoBytes>(bytes: B, stream_id: Option<u8>) -> Self {
         Self {
-            bytes,
+            bytes: bytes.into_bytes(),
             header: PacketHeader::ReliableSequenced {
-                stream_id: stream,
+                stream_id,
                 seq_id: 0,
             },
         }
@@ -87,11 +93,11 @@ impl Packet {
     /// old packets are dropped
     ///
     /// ordered
-    pub fn reliable_sequenced_from(bytes: &[u8], stream: Option<u8>) -> Self {
+    pub fn reliable_sequenced_static<B: IntoStaticBytes>(bytes: B, stream_id: Option<u8>) -> Self {
         Self {
-            bytes: Bytes::copy_from_slice(bytes),
+            bytes: bytes.into_bytes(),
             header: PacketHeader::ReliableSequenced {
-                stream_id: stream,
+                stream_id,
                 seq_id: 0,
             },
         }
@@ -100,9 +106,9 @@ impl Packet {
     /// no packets are dropped
     ///
     /// not ordered
-    pub fn reliable_unordered(bytes: Bytes) -> Self {
+    pub fn reliable_unordered<B: IntoBytes>(bytes: B) -> Self {
         Self {
-            bytes,
+            bytes: bytes.into_bytes(),
             header: PacketHeader::ReliableUnordered,
         }
     }
@@ -110,9 +116,9 @@ impl Packet {
     /// no packets are dropped
     ///
     /// not ordered
-    pub fn reliable_unordered_from(bytes: &[u8]) -> Self {
+    pub fn reliable_unordered_static<B: IntoStaticBytes>(bytes: B) -> Self {
         Self {
-            bytes: Bytes::copy_from_slice(bytes),
+            bytes: bytes.into_bytes(),
             header: PacketHeader::ReliableUnordered,
         }
     }
@@ -120,11 +126,11 @@ impl Packet {
     /// 'random' and old packets are dropped
     ///
     /// ordered
-    pub fn unreliable_sequenced(bytes: Bytes, stream: Option<u8>) -> Self {
+    pub fn unreliable_sequenced<B: IntoBytes>(bytes: B, stream_id: Option<u8>) -> Self {
         Self {
-            bytes,
+            bytes: bytes.into_bytes(),
             header: PacketHeader::UnreliableSequenced {
-                stream_id: stream,
+                stream_id,
                 seq_id: 0,
             },
         }
@@ -133,11 +139,14 @@ impl Packet {
     /// 'random' and old packets are dropped
     ///
     /// ordered
-    pub fn unreliable_sequenced_from(bytes: &[u8], stream: Option<u8>) -> Self {
+    pub fn unreliable_sequenced_static<B: IntoStaticBytes>(
+        bytes: B,
+        stream_id: Option<u8>,
+    ) -> Self {
         Self {
-            bytes: Bytes::copy_from_slice(bytes),
+            bytes: bytes.into_bytes(),
             header: PacketHeader::UnreliableSequenced {
-                stream_id: stream,
+                stream_id,
                 seq_id: 0,
             },
         }
@@ -146,9 +155,9 @@ impl Packet {
     /// 'random' packets are dropped
     ///
     /// not ordered
-    pub fn unreliable(bytes: Bytes) -> Self {
+    pub fn unreliable<B: IntoBytes>(bytes: B) -> Self {
         Self {
-            bytes,
+            bytes: bytes.into_bytes(),
             header: PacketHeader::Unreliable,
         }
     }
@@ -156,10 +165,75 @@ impl Packet {
     /// 'random' packets are dropped
     ///
     /// not ordered
-    pub fn unreliable_from(bytes: &[u8]) -> Self {
+    pub fn unreliable_static<B: IntoStaticBytes>(bytes: B) -> Self {
         Self {
-            bytes: Bytes::copy_from_slice(bytes),
+            bytes: bytes.into_bytes(),
             header: PacketHeader::Unreliable,
         }
+    }
+}
+
+//
+
+pub trait IntoBytes {
+    fn into_bytes(self) -> Bytes;
+}
+
+pub trait IntoStaticBytes {
+    fn into_bytes(self) -> Bytes;
+}
+
+impl IntoBytes for Bytes {
+    fn into_bytes(self) -> Bytes {
+        self
+    }
+}
+
+impl IntoBytes for Vec<u8> {
+    fn into_bytes(self) -> Bytes {
+        self.into()
+    }
+}
+
+impl IntoBytes for Box<[u8]> {
+    fn into_bytes(self) -> Bytes {
+        self.into()
+    }
+}
+
+impl IntoBytes for String {
+    fn into_bytes(self) -> Bytes {
+        self.into()
+    }
+}
+
+impl<'a> IntoBytes for &'a [u8] {
+    fn into_bytes(self) -> Bytes {
+        // TODO: specialization for
+        // 'static when it is stable
+        Bytes::copy_from_slice(self)
+    }
+}
+
+impl<'a> IntoBytes for &'a str {
+    fn into_bytes(self) -> Bytes {
+        // TODO: specialization for
+        // 'static when it is stable
+        Bytes::from(self.to_owned())
+    }
+}
+
+// TODO: specialization for
+// T: Serialize when it is stable
+
+impl IntoStaticBytes for &'static [u8] {
+    fn into_bytes(self) -> Bytes {
+        self.into()
+    }
+}
+
+impl IntoStaticBytes for &'static str {
+    fn into_bytes(self) -> Bytes {
+        self.into()
     }
 }

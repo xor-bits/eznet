@@ -1,4 +1,9 @@
-use crate::{packet::Packet, reader::reader_worker_job, writer::writer_worker_job};
+use crate::{
+    filter::{filter_unwanted, FilterError},
+    packet::Packet,
+    reader::reader_worker_job,
+    writer::writer_worker_job,
+};
 use futures::future::join;
 use quinn::{ClientConfig, Connection, Endpoint, NewConnection};
 use quinn_proto::ConnectionStats;
@@ -44,6 +49,9 @@ pub enum ConnectError {
 
     #[error("failed to bind socket ({0})")]
     IoError(#[from] io::Error),
+
+    #[error("peer filtered out ({0})")]
+    FilterError(#[from] FilterError),
 }
 
 //
@@ -58,7 +66,7 @@ impl Socket {
         addr: SocketAddr,
         config: ClientConfig,
     ) -> Result<Self, ConnectError> {
-        // TODO: 1, 2, see README.md
+        // TODO: 1, see README.md
 
         let listen = if addr.is_ipv6() {
             SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0).into()
@@ -70,7 +78,7 @@ impl Socket {
         endpoint.set_default_client_config(config);
         let conn = endpoint.connect(addr, "localhost")?.await?;
 
-        Ok(Self::new(conn, endpoint))
+        Self::new(conn, endpoint).await
     }
 
     /// Self signed certificate verifier
@@ -126,13 +134,15 @@ impl Socket {
         self.connection.rtt()
     }
 
-    pub(crate) fn new(conn: NewConnection, endpoint: Endpoint) -> Self {
+    pub(crate) async fn new(conn: NewConnection, endpoint: Endpoint) -> Result<Self, ConnectError> {
         let NewConnection {
             connection,
-            uni_streams,
+            mut uni_streams,
             datagrams,
             ..
         } = conn;
+
+        filter_unwanted(&mut uni_streams, &connection).await?;
 
         // TODO: 4, see README.md
         let (worker_send, recv) = mpsc::channel(256);
@@ -156,7 +166,7 @@ impl Socket {
             worker_should_stop_2,
         ));
 
-        Self {
+        Ok(Self {
             inner: Some(SocketInner {
                 endpoint,
                 connection,
@@ -168,7 +178,7 @@ impl Socket {
                 read_worker,
                 should_stop,
             }),
-        }
+        })
     }
 }
 

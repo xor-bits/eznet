@@ -6,12 +6,20 @@ pub mod socket;
 
 //
 
+mod filter;
 mod reader;
 mod writer;
 
 //
 
 pub use bytes;
+
+//
+
+pub static VERSION: &str = concat!(
+    concat!(env!("CARGO_PKG_NAME"), "-"),
+    env!("CARGO_PKG_VERSION")
+);
 
 //
 

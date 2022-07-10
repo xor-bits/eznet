@@ -24,10 +24,9 @@ based, simple to use and async net lib with configurable reliability and orderin
 
 ```rust
 // examples/simple-server.rs
-let bind_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331);
-let mut listener = Listener::bind(bind_addr.into());
+let mut listener = Listener::bind("127.0.0.1:13331".parse().unwrap());
 
-while let Some(socket) = listener.next().await {
+while let Ok(socket) = listener.next().await {
     socket
         .send(Packet::ordered_from(
             format!("Hello {}!", socket.remote()).as_bytes(),
@@ -38,8 +37,9 @@ while let Some(socket) = listener.next().await {
 }
 
 // examples/simple-client.rs
-let server_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331);
-let mut socket = Socket::connect(server_addr.into()).await.unwrap();
+let mut socket = Socket::connect("127.0.0.1:13331".parse().unwrap())
+    .await
+    .unwrap();
 
 println!(
     "{}",
@@ -56,7 +56,7 @@ println!(
       accept everything. Add certificates,
       private keys, server names and DNS. (1)
 
-- [ ] Open socket magic byte test to
+- [x] Open socket magic byte test to
       filter out random scanners and
       'accidental' connections. (2)
 
@@ -69,6 +69,9 @@ println!(
       get actually sent, all of them are buffered. (5)
 
 - [ ] actually drop 'old' sequenced packets (6)
+
+- [ ] list of breaking versions and
+      testing it when filtering (7)
 
 ## License
 

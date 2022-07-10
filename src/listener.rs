@@ -1,4 +1,4 @@
-use crate::socket::Socket;
+use crate::socket::{ConnectError, Socket};
 use futures::StreamExt;
 use quinn::{Endpoint, Incoming, ServerConfig};
 use rustls::Certificate;
@@ -35,9 +35,13 @@ impl Listener {
         Self { endpoint, incoming }
     }
 
-    pub async fn next(&mut self) -> Option<Socket> {
-        let connecting = self.incoming.next().await?;
-        let connection = connecting.await.ok()?;
-        Some(Socket::new(connection, self.endpoint.clone()))
+    pub async fn next(&mut self) -> Result<Socket, ConnectError> {
+        let connecting = self
+            .incoming
+            .next()
+            .await
+            .ok_or(ConnectError::Connect(quinn::ConnectError::EndpointStopping))?;
+        let connection = connecting.await?;
+        Socket::new(connection, self.endpoint.clone()).await
     }
 }

@@ -1,12 +1,12 @@
 use eznet::socket::Socket;
-use std::net::{Ipv4Addr, SocketAddrV4};
 
 //
 
 #[tokio::main]
 async fn main() {
-    let server_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331);
-    let mut socket = Socket::connect(server_addr.into()).await.unwrap();
+    let mut socket = Socket::connect("127.0.0.1:13331".parse().unwrap())
+        .await
+        .unwrap();
 
     println!(
         "{}",

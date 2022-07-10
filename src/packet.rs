@@ -215,6 +215,22 @@ impl<'a> IntoBytes for &'a [u8] {
     }
 }
 
+impl<'a, const C: usize> IntoBytes for &'a [u8; C] {
+    fn into_bytes(self) -> Bytes {
+        // TODO: specialization for
+        // 'static when it is stable
+        Bytes::copy_from_slice(self)
+    }
+}
+
+impl<const C: usize> IntoBytes for [u8; C] {
+    fn into_bytes(self) -> Bytes {
+        // TODO: specialization for
+        // 'static when it is stable
+        Bytes::copy_from_slice(&self)
+    }
+}
+
 impl<'a> IntoBytes for &'a str {
     fn into_bytes(self) -> Bytes {
         // TODO: specialization for
@@ -229,6 +245,12 @@ impl<'a> IntoBytes for &'a str {
 impl IntoStaticBytes for &'static [u8] {
     fn into_bytes(self) -> Bytes {
         self.into()
+    }
+}
+
+impl<const C: usize> IntoStaticBytes for &'static [u8; C] {
+    fn into_bytes(self) -> Bytes {
+        self[..].into()
     }
 }
 

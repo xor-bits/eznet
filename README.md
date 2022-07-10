@@ -82,3 +82,8 @@ println!(
 Licensed under either of [MIT license](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) license.
 
 I am not a lawyer.
+
+## MSRV
+
+Currently the Minimum Supported Rust Version is **1.58**.
+I do not care to 'minimize' this and it is what it is.

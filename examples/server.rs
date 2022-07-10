@@ -1,5 +1,4 @@
 use eznet::{listener::Listener, packet::Packet};
-use std::net::{Ipv4Addr, SocketAddrV4};
 
 //
 
@@ -7,8 +6,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 pub async fn main() {
     env_logger::init();
 
-    let mut listener =
-        Listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331).into()).unwrap();
+    let mut listener = Listener::bind("localhost:13331").unwrap();
     let mut socket = listener.next().await.unwrap();
 
     log::info!("Start receiving ordered");
@@ -21,7 +19,7 @@ pub async fn main() {
                 .unwrap(),
         );
         if j < i {
-            log::error!("Out of order packet");
+            log::error!("Out of order packet {i} {j}");
         }
         i = j;
     }

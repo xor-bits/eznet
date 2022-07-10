@@ -1,8 +1,5 @@
 use eznet::{packet::Packet, socket::Socket};
-use std::{
-    net::{Ipv4Addr, SocketAddrV4},
-    time::Duration,
-};
+use std::time::Duration;
 use tokio::time::sleep;
 
 //
@@ -11,9 +8,7 @@ use tokio::time::sleep;
 pub async fn main() {
     env_logger::init();
 
-    let mut socket = Socket::connect(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331).into())
-        .await
-        .unwrap();
+    let mut socket = Socket::connect("localhost:13331").await.unwrap();
 
     log::info!("Start sending ordered");
 

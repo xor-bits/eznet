@@ -1,4 +1,5 @@
 use crate::{
+    attempt_all_async,
     filter::{filter_unwanted, FilterError},
     packet::Packet,
     reader::reader_worker_job,
@@ -10,7 +11,7 @@ use quinn_proto::ConnectionStats;
 use rustls::{client::ServerCertVerifier, Certificate};
 use std::{
     io,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
     ops::{Deref, DerefMut},
     sync::Arc,
     time::Duration,
@@ -50,6 +51,12 @@ pub enum ConnectError {
     #[error("failed to bind socket ({0})")]
     IoError(#[from] io::Error),
 
+    #[error("invalid socket address ({0})")]
+    InvalidSocketAddress(io::Error),
+
+    #[error("no socket address")]
+    NoSocketAddress,
+
     #[error("peer filtered out ({0})")]
     FilterError(#[from] FilterError),
 }
@@ -57,9 +64,18 @@ pub enum ConnectError {
 //
 
 impl Socket {
-    pub async fn connect(addr: SocketAddr) -> Result<Self, ConnectError> {
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<Self, ConnectError> {
         let config = Self::default_config();
-        Self::connect_config(addr, config).await
+        let addrs = addr
+            .to_socket_addrs()
+            .map_err(ConnectError::InvalidSocketAddress)?;
+
+        attempt_all_async(
+            addrs,
+            move |addr| Self::connect_config(addr, config.clone()),
+            ConnectError::NoSocketAddress,
+        )
+        .await
     }
 
     pub async fn connect_config(

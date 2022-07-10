@@ -178,9 +178,9 @@ async fn flush(ordered: &mut HashMap<Option<u8>, FWrite>, can_flush: &mut bool) 
 
     // finish all pending streams
 
-    join_all(ordered.drain().map(|(_, mut stream)| async move {
+    join_all(ordered.iter_mut().map(|(_, stream)| async move {
         unwrap_or!(stream.flush().await, return);
-        unwrap_or!(stream.get_mut().finish().await, return);
+        // unwrap_or!(stream.get_mut().finish().await, return);
     }))
     .await;
 }

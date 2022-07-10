@@ -1,8 +1,14 @@
-use crate::socket::{ConnectError, Socket};
+use crate::{
+    attempt_all,
+    socket::{ConnectError, Socket},
+};
 use futures::StreamExt;
 use quinn::{Endpoint, Incoming, ServerConfig};
 use rustls::Certificate;
-use std::{io, net::SocketAddr};
+use std::{
+    io,
+    net::{SocketAddr, ToSocketAddrs},
+};
 use thiserror::Error;
 
 //
@@ -17,6 +23,12 @@ pub enum BindError {
     #[error("bind error ({0})")]
     IoError(#[from] io::Error),
 
+    #[error("invalid socket address ({0})")]
+    InvalidSocketAddress(io::Error),
+
+    #[error("no socket address")]
+    NoSocketAddress,
+
     #[error("tls error ({0})")]
     TLSError(#[from] rustls::Error),
 
@@ -27,9 +39,17 @@ pub enum BindError {
 //
 
 impl Listener {
-    pub fn bind(addr: SocketAddr) -> Result<Self, BindError> {
+    pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self, BindError> {
         let config = Self::default_config()?;
-        Self::from_config(config, addr)
+        let addrs = addr
+            .to_socket_addrs()
+            .map_err(BindError::InvalidSocketAddress)?;
+
+        attempt_all(
+            addrs,
+            move |addr| Self::from_config(addr, config.clone()),
+            BindError::NoSocketAddress,
+        )
     }
 
     /// Self signed certificate
@@ -43,7 +63,7 @@ impl Listener {
         Ok(ServerConfig::with_single_cert(cert_chain, priv_key)?)
     }
 
-    pub fn from_config(config: ServerConfig, addr: SocketAddr) -> Result<Self, BindError> {
+    pub fn from_config(addr: SocketAddr, config: ServerConfig) -> Result<Self, BindError> {
         let (endpoint, incoming) = Endpoint::server(config, addr)?;
         Ok(Self { endpoint, incoming })
     }

@@ -4,7 +4,7 @@ use eznet::{listener::Listener, packet::Packet};
 
 #[tokio::main]
 async fn main() {
-    let mut listener = Listener::bind("127.0.0.1:13331".parse().unwrap()).unwrap();
+    let mut listener = Listener::bind("localhost:13331").unwrap();
 
     while let Ok(socket) = listener.next().await {
         socket

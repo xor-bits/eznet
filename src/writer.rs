@@ -14,11 +14,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
 };
 use tokio::{
     sync::{broadcast, mpsc},
-    time::sleep,
+    time::{sleep_until, Duration, Instant},
 };
 use tokio_util::codec::{FramedWrite, LengthDelimitedCodec};
 
@@ -37,9 +36,19 @@ pub async fn writer_worker_job(
 
     let stop = Arc::new(AtomicBool::new(false));
 
-    // TODO: 5, see README.md
+    let mut next_flush = Instant::now() + Duration::from_millis(1);
 
-    while let Some(job) = next_job(&mut recv, &mut should_stop, can_flush, stop.clone()).await {
+    //
+
+    while let Some(job) = next_job(
+        &mut recv,
+        &mut should_stop,
+        &mut next_flush,
+        can_flush,
+        stop.clone(),
+    )
+    .await
+    {
         match job {
             // reliable ordered packets
             WriterJob::Feed(Packet {
@@ -135,6 +144,7 @@ pub async fn writer_worker_job(
 async fn next_job(
     recv: &mut mpsc::Receiver<Packet>,
     should_stop: &mut broadcast::Receiver<()>,
+    next_flush: &mut Instant,
     can_flush: bool,
     stop: Arc<AtomicBool>,
 ) -> Option<WriterJob> {
@@ -142,22 +152,24 @@ async fn next_job(
         return None;
     }
 
-    if let Ok(packet) = recv.try_recv() {
+    /* if let Ok(packet) = recv.try_recv() {
         return Some(WriterJob::Feed(packet));
-    }
+    } */
 
     let wait_until_flush = async {
         if can_flush {
-            sleep(Duration::from_millis(1)).await;
+            // log::debug!("flushing");
+            sleep_until(*next_flush).await;
+            *next_flush = Instant::now() + Duration::from_millis(1);
         } else {
             pending::<()>().await;
         }
     };
 
     select_biased! {
+        _ = wait_until_flush.fuse() => Some(WriterJob::Flush),
         p = recv.recv().fuse() => p.map(WriterJob::Feed),
         _ = should_stop.recv().fuse() => None,
-        _ = wait_until_flush.fuse() => Some(WriterJob::Flush)
     }
 }
 

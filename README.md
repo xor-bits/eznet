@@ -69,11 +69,11 @@ println!(
 
 - [ ] Configurable buffer capacity. (4)
 
-- [ ] if packets are sent slightly faster
+- [x] if packets are sent slightly faster
       than once per millisecond, none of them
       get actually sent, all of them are buffered. (5)
 
-- [ ] actually drop 'old' sequenced packets (6)
+- [x] actually drop 'old' sequenced packets (6)
 
 - [ ] list of breaking versions and
       testing it when filtering (7)

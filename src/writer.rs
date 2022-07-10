@@ -37,9 +37,7 @@ pub async fn writer_worker_job(
 
     let stop = Arc::new(AtomicBool::new(false));
 
-    // TODO: if packets are sent slightly faster
-    // than once per millisecond, none of them
-    // get actually sent, all of them are buffered
+    // TODO: 5, see README.md
 
     while let Some(job) = next_job(&mut recv, &mut should_stop, can_flush, stop.clone()).await {
         match job {

@@ -75,7 +75,7 @@ async fn handle_old_stream(
         return true;
     });
 
-    // TODO: actually drop 'old' sequenced packets
+    // TODO: 6, see README.md
 
     send.send(packet).await.is_err()
 }
@@ -101,7 +101,7 @@ async fn handle_datagram(
         return true;
     });
 
-    // TODO: actually drop 'old' sequenced packets
+    // TODO: 6, see README.md
 
     send.send(packet).await.is_err()
 }

@@ -39,15 +39,21 @@ println!(
 
 ## TODO:
 
-- 1: Encryption doesn't protect
-  from MITM attacks at the moment.
-  Add certificates, private keys,
-  server names and DNS
+- [ ] Encryption doesn't protect
+      from MITM attacks at the moment.
+      Add certificates, private keys,
+      server names and DNS. (1)
 
-- 2: Open socket magic byte test to
-  filter out random scanners and
-  'accidental' connections.
+- [ ] Open socket magic byte test to
+      filter out random scanners and
+      'accidental' connections. (2)
 
-- 3: Disconnect message when closing
+- [ ] Disconnect message when closing. (3)
 
-- 4: Configurable buffer capacity
+- [ ] Configurable buffer capacity. (4)
+
+- [ ] if packets are sent slightly faster
+      than once per millisecond, none of them
+      get actually sent, all of them are buffered. (5)
+
+- [ ] actually drop 'old' sequenced packets (6)

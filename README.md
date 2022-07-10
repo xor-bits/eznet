@@ -75,6 +75,8 @@ println!(
 - [ ] list of breaking versions and
       testing it when filtering (7)
 
+- [ ] More unit tests
+
 ## License
 
 Licensed under either of [MIT license](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) license.

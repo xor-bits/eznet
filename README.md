@@ -18,13 +18,13 @@ let bind_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331);
 let mut listener = Listener::bind(bind_addr.into());
 
 while let Some(socket) = listener.next().await {
-	socket
-		.send(Packet::ordered_from(
-			format!("Hello {}!", socket.remote()).as_bytes(),
-			None,
-		))
-		.await
-		.unwrap();
+    socket
+        .send(Packet::ordered_from(
+            format!("Hello {}!", socket.remote()).as_bytes(),
+            None,
+        ))
+        .await
+        .unwrap();
 }
 
 // examples/simple-client.rs
@@ -32,8 +32,8 @@ let server_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 13331);
 let mut socket = Socket::connect(server_addr.into()).await.unwrap();
 
 println!(
-	"{}",
-	std::str::from_utf8(&socket.recv().await.unwrap().bytes[..]).unwrap()
+    "{}",
+    std::str::from_utf8(&socket.recv().await.unwrap().bytes[..]).unwrap()
 );
 ```
 

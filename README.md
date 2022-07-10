@@ -10,6 +10,16 @@ a simple net lib
 style, [Quinn](https://github.com/quinn-rs/quinn) ([QUIC](https://en.wikipedia.org/wiki/QUIC))
 based, simple to use and async net lib with configurable reliability and ordering.
 
+## Features:
+
+ - Packets are encrypted (but not really securely [TODO](#todo): 1)
+ 
+ - Reliable ordered, reliable sequenced, reliable unordered, unreliable sequenced and unreliable unordered packets
+ 
+ - Easy to use
+ 
+ - Async/await
+
 ## Example:
 
 ```rust
@@ -41,8 +51,10 @@ println!(
 
 - [ ] Encryption doesn't protect
       from MITM attacks at the moment.
-      Add certificates, private keys,
-      server names and DNS. (1)
+      Only self signed server side
+      certificates are used and clients
+      accept everything. Add certificates,
+      private keys, server names and DNS. (1)
 
 - [ ] Open socket magic byte test to
       filter out random scanners and

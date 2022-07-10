@@ -2,7 +2,7 @@
 
 # eznet
 
-a simple net lib
+easy net lib
 
 [![dependency status](https://deps.rs/repo/github/Overpeek/eznet/status.svg)](https://deps.rs/repo/github/Overpeek/eznet)
 [![build status](https://github.com/Overpeek/eznet/actions/workflows/rust.yml/badge.svg)](https://github.com/Overpeek/eznet/actions)

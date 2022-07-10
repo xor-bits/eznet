@@ -4,6 +4,11 @@
 
 a simple net lib
 
+[![dependency status](https://deps.rs/repo/github/Overpeek/eznet/status.svg)](https://deps.rs/repo/github/Overpeek/eznet)
+[![build status](https://github.com/Overpeek/eznet/actions/workflows/rust.yml/badge.svg)](https://github.com/Overpeek/eznet/actions)
+[![crates.io](https://img.shields.io/crates/v/eznet.svg?label=eznet)](https://crates.io/crates/eznet)
+[![docs.rs](https://docs.rs/eznet/badge.svg)](https://docs.rs/eznet/)
+
 </div>
 
 [ENet](http://enet.bespin.org/)/[laminar](https://github.com/TimonPost/laminar)

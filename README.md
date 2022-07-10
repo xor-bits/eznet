@@ -12,13 +12,13 @@ based, simple to use and async net lib with configurable reliability and orderin
 
 ## Features:
 
- - Packets are encrypted (but not really securely [TODO](#todo): 1)
- 
- - Reliable ordered, reliable sequenced, reliable unordered, unreliable sequenced and unreliable unordered packets
- 
- - Easy to use
- 
- - Async/await
+- Packets are encrypted (but not really securely [TODO](#todo): 1)
+
+- Reliable ordered, reliable sequenced, reliable unordered, unreliable sequenced and unreliable unordered packets
+
+- Easy to use
+
+- Async/await
 
 ## Example:
 

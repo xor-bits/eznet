@@ -1,4 +1,4 @@
-use rnet::socket::Socket;
+use eznet::socket::Socket;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
 //

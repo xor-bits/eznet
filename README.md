@@ -1,6 +1,6 @@
 <div align="center">
 
-# rnet
+# eznet
 
 a simple net lib
 

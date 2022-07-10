@@ -1,5 +1,4 @@
-use futures::future::join_all;
-use rnet::{packet::Packet, socket::Socket};
+use eznet::{packet::Packet, socket::Socket};
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,

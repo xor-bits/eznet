@@ -1,4 +1,4 @@
-use rnet::{listener::Listener, packet::Packet};
+use eznet::{listener::Listener, packet::Packet};
 use std::net::{Ipv4Addr, SocketAddrV4};
 
 //

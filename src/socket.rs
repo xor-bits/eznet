@@ -32,8 +32,7 @@ pub struct SocketInner {
     endpoint: Endpoint,
     connection: Connection,
 
-    send: mpsc::Sender<Packet>,
-    recv: mpsc::Receiver<Packet>,
+    channels: Option<(mpsc::Sender<Packet>, mpsc::Receiver<Packet>)>,
 
     write_worker: JoinHandle<()>,
     read_worker: JoinHandle<()>,
@@ -125,12 +124,39 @@ impl Socket {
         ClientConfig::new(Arc::new(crypto))
     }
 
+    /// panics if socket is split
     pub async fn recv(&mut self) -> Option<Packet> {
-        self.recv.recv().await
+        self.channels
+            .as_mut()
+            .expect("channels already taken")
+            .1
+            .recv()
+            .await
     }
 
+    /// panics if socket is split
     pub async fn send(&self, packet: Packet) -> Option<()> {
-        self.send.send(packet).await.ok()
+        self.channels
+            .as_ref()
+            .expect("channels already taken")
+            .0
+            .send(packet)
+            .await
+            .ok()
+    }
+
+    /// returns the sender and receiver parts
+    ///
+    /// this socket should still be kept
+    ///
+    /// panics if split twice
+    pub fn split(&mut self) -> (mpsc::Sender<Packet>, mpsc::Receiver<Packet>) {
+        self.channels.take().expect("channels already taken")
+    }
+
+    /// _unsplit_
+    pub fn unite(&mut self, channels: (mpsc::Sender<Packet>, mpsc::Receiver<Packet>)) {
+        self.channels = Some(channels);
     }
 
     pub async fn wait_idle(&self) {
@@ -187,8 +213,7 @@ impl Socket {
                 endpoint,
                 connection,
 
-                send,
-                recv,
+                channels: Some((send, recv)),
 
                 write_worker,
                 read_worker,
@@ -215,8 +240,7 @@ impl DerefMut for Socket {
 impl Drop for Socket {
     fn drop(&mut self) {
         if let Some(SocketInner {
-            send,
-            recv,
+            channels,
             write_worker,
             read_worker,
             should_stop,
@@ -228,7 +252,7 @@ impl Drop for Socket {
             futures::executor::block_on(async move {
                 let _ = should_stop.send(());
                 let _ = join(write_worker, read_worker).await;
-                let _ = (send, recv, connection, endpoint);
+                let _ = (channels, connection, endpoint);
 
                 log::debug!("Closing socket");
 

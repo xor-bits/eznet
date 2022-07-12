@@ -77,6 +77,8 @@ println!(
 
 - [ ] More unit tests
 
+- [ ] Socket events. (Disconnect, Timeout, Packet, ...)
+
 ## License
 
 Licensed under either of [MIT license](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) license.

@@ -18,16 +18,24 @@ use std::{
 };
 use thiserror::Error;
 use tokio::{
-    sync::{broadcast, mpsc},
+    sync::{
+        broadcast,
+        mpsc::{
+            self,
+            error::{TryRecvError, TrySendError},
+        },
+    },
     task::JoinHandle,
 };
 
 //
 
+#[derive(Debug)]
 pub struct Socket {
     inner: Option<SocketInner>,
 }
 
+#[derive(Debug)]
 pub struct SocketInner {
     endpoint: Endpoint,
     connection: Connection,
@@ -126,23 +134,22 @@ impl Socket {
 
     /// panics if socket is split
     pub async fn recv(&mut self) -> Option<Packet> {
-        self.channels
-            .as_mut()
-            .expect("channels already taken")
-            .1
-            .recv()
-            .await
+        self.receiver().recv().await
+    }
+
+    /// panics if socket is split
+    pub fn try_recv(&mut self) -> Result<Packet, TryRecvError> {
+        self.receiver().try_recv()
     }
 
     /// panics if socket is split
     pub async fn send(&self, packet: Packet) -> Option<()> {
-        self.channels
-            .as_ref()
-            .expect("channels already taken")
-            .0
-            .send(packet)
-            .await
-            .ok()
+        self.sender().send(packet).await.ok()
+    }
+
+    /// panics if socket is split
+    pub fn try_send(&self, packet: Packet) -> Result<(), TrySendError<Packet>> {
+        self.sender().try_send(packet)
     }
 
     /// returns the sender and receiver parts
@@ -159,12 +166,36 @@ impl Socket {
         self.channels = Some(channels);
     }
 
+    /// panics if socket is split
+    pub fn channels(&self) -> &(mpsc::Sender<Packet>, mpsc::Receiver<Packet>) {
+        self.channels.as_ref().expect("channels already taken")
+    }
+
+    /// panics if socket is split
+    pub fn channels_mut(&mut self) -> &mut (mpsc::Sender<Packet>, mpsc::Receiver<Packet>) {
+        self.channels.as_mut().expect("channels already taken")
+    }
+
+    /// panics if socket is split
+    pub fn sender(&self) -> &mpsc::Sender<Packet> {
+        &self.channels().0
+    }
+
+    /// panics if socket is split
+    pub fn receiver(&mut self) -> &mut mpsc::Receiver<Packet> {
+        &mut self.channels_mut().1
+    }
+
     pub async fn wait_idle(&self) {
         self.endpoint.wait_idle().await
     }
 
     pub fn remote(&self) -> SocketAddr {
         self.connection.remote_address()
+    }
+
+    pub fn local(&self) -> SocketAddr {
+        self.endpoint.local_addr().unwrap()
     }
 
     pub fn stats(&self) -> ConnectionStats {

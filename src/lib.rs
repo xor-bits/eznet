@@ -10,6 +10,7 @@ pub mod socket;
 //
 
 mod filter;
+mod inner;
 mod reader;
 mod writer;
 

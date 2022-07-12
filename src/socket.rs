@@ -1,12 +1,5 @@
-use crate::{
-    attempt_all_async,
-    filter::{filter_unwanted, FilterError},
-    packet::Packet,
-    reader::reader_worker_job,
-    writer::writer_worker_job,
-};
-use futures::future::join;
-use quinn::{ClientConfig, Connection, Endpoint, NewConnection};
+use crate::{attempt_all_async, filter::FilterError, inner::SocketInner, packet::Packet};
+use quinn::{ClientConfig, Endpoint, NewConnection};
 use quinn_proto::ConnectionStats;
 use rustls::{client::ServerCertVerifier, Certificate};
 use std::{
@@ -17,15 +10,9 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use tokio::{
-    sync::{
-        broadcast,
-        mpsc::{
-            self,
-            error::{TryRecvError, TrySendError},
-        },
-    },
-    task::JoinHandle,
+use tokio::sync::mpsc::{
+    self,
+    error::{TryRecvError, TrySendError},
 };
 
 //
@@ -33,18 +20,6 @@ use tokio::{
 #[derive(Debug)]
 pub struct Socket {
     inner: Option<SocketInner>,
-}
-
-#[derive(Debug)]
-pub struct SocketInner {
-    endpoint: Endpoint,
-    connection: Connection,
-
-    channels: Option<(mpsc::Sender<Packet>, mpsc::Receiver<Packet>)>,
-
-    write_worker: JoinHandle<()>,
-    read_worker: JoinHandle<()>,
-    should_stop: broadcast::Sender<()>,
 }
 
 #[derive(Debug, Error)]
@@ -208,48 +183,8 @@ impl Socket {
     }
 
     pub(crate) async fn new(conn: NewConnection, endpoint: Endpoint) -> Result<Self, ConnectError> {
-        let NewConnection {
-            connection,
-            mut uni_streams,
-            datagrams,
-            ..
-        } = conn;
-
-        filter_unwanted(&mut uni_streams, &connection).await?;
-
-        // TODO: 4, see README.md
-        let (worker_send, recv) = mpsc::channel(256);
-        let (send, worker_recv) = mpsc::channel(256);
-
-        let (should_stop, worker_should_stop_1) = broadcast::channel(1);
-        let worker_should_stop_2 = worker_should_stop_1.resubscribe();
-
-        // spawn writer worker
-        let write_worker = tokio::spawn(writer_worker_job(
-            connection.clone(),
-            worker_recv,
-            worker_should_stop_1,
-        ));
-
-        // spawn reader worker
-        let read_worker = tokio::spawn(reader_worker_job(
-            uni_streams,
-            datagrams,
-            worker_send,
-            worker_should_stop_2,
-        ));
-
         Ok(Self {
-            inner: Some(SocketInner {
-                endpoint,
-                connection,
-
-                channels: Some((send, recv)),
-
-                write_worker,
-                read_worker,
-                should_stop,
-            }),
+            inner: Some(SocketInner::new(conn, endpoint).await?),
         })
     }
 }
@@ -270,25 +205,8 @@ impl DerefMut for Socket {
 
 impl Drop for Socket {
     fn drop(&mut self) {
-        if let Some(SocketInner {
-            channels,
-            write_worker,
-            read_worker,
-            should_stop,
-            connection,
-            endpoint,
-            ..
-        }) = self.inner.take()
-        {
-            futures::executor::block_on(async move {
-                let _ = should_stop.send(());
-                let _ = join(write_worker, read_worker).await;
-                let _ = (channels, connection, endpoint);
-
-                log::debug!("Closing socket");
-
-                // TODO: 3, see README.md
-            });
+        if let Some(s) = self.inner.take() {
+            s.close();
         }
     }
 }

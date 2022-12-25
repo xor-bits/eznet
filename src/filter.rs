@@ -1,11 +1,9 @@
-use crate::VERSION;
-use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::{join, select, FutureExt, SinkExt, StreamExt, TryFutureExt};
 use quinn::{Connection, ConnectionError, IncomingUniStreams, WriteError};
 use serde::{Deserialize, Serialize};
 use std::{io, time::Duration};
 use thiserror::Error;
-use tokio::{join, select, time::sleep};
+use tokio::time::timeout;
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 //
@@ -31,8 +29,11 @@ pub enum FilterError {
     InvalidPacketMagicBytes,
 
     // TODO: 7, see README.md
-    #[error("peer is not compatible with {}", crate::VERSION)]
-    NotCompatible,
+    #[error("The peer (version {0}.{1}) is not compatible with version {}.{}", PACKET.version.0, PACKET.version.1)]
+    NotCompatible(u16, u16),
+
+    #[error("The peer didn't respond")]
+    NoResponse,
 }
 
 //
@@ -51,12 +52,14 @@ pub async fn filter_unwanted(
 async fn send_filter_test(connection: &Connection) -> Result<(), FilterError> {
     // time out after 5 seconds
     // open a new stream for sending the filter test message
-    let mut stream = select! {
-        timeout = filter_test_time_out() => return timeout,
-        stream = connection.open_uni() => FramedWrite::new(stream?, LengthDelimitedCodec::default())
-    };
+    let stream = timeout(Duration::from_secs(5), connection.open_uni())
+        .await
+        .map_err(|_| FilterError::TimedOut)??;
+    let mut stream = FramedWrite::new(stream, LengthDelimitedCodec::default());
 
-    stream.send(PACKET.clone()).await?;
+    stream
+        .send(bincode::serialize(&PACKET).unwrap().into())
+        .await?;
     stream.into_inner().finish().await?;
 
     Ok(())
@@ -65,21 +68,27 @@ async fn send_filter_test(connection: &Connection) -> Result<(), FilterError> {
 async fn recv_filter_test(uni_streams: &mut IncomingUniStreams) -> Result<(), FilterError> {
     // time out after 5 seconds
     // open a new stream for sending the filter test message
-    let mut stream = select! {
-        timeout = filter_test_time_out() => return timeout,
-        Some(stream) = uni_streams.next() => FramedRead::new(stream?, LengthDelimitedCodec::default()),
-    };
-
-    let packet = select! {
-        timeout = filter_test_time_out() => return timeout,
-        Some(packet) = stream.next() => packet?,
-    };
+    let packet = timeout(Duration::from_secs(5), async move {
+        let stream = uni_streams.next().await.ok_or(FilterError::NoResponse)??;
+        let mut stream = FramedRead::new(stream, LengthDelimitedCodec::default());
+        Ok::<_, FilterError>(stream.next().await.ok_or(FilterError::NoResponse)??)
+    })
+    .await
+    .map_err(|_| FilterError::TimedOut)??;
 
     let packet: FilterPacket = bincode::deserialize(&packet[..])?;
 
-    if packet.magic_bytes != MAGIC_BYTES {
-        log::debug!("Invalid filter packet {packet:?}");
+    if packet.magic_bytes != PACKET.magic_bytes {
+        tracing::debug!("Invalid filter packet {packet:?}");
         return Err(FilterError::InvalidPacketMagicBytes);
+    }
+
+    if packet.version != PACKET.version {
+        tracing::debug!("Filter packet from incompatible peer {packet:?}");
+        return Err(FilterError::NotCompatible(
+            packet.version.0,
+            packet.version.1,
+        ));
     }
 
     // TODO: 7, see README.md
@@ -87,33 +96,26 @@ async fn recv_filter_test(uni_streams: &mut IncomingUniStreams) -> Result<(), Fi
     Ok(())
 }
 
-async fn filter_test_time_out() -> Result<(), FilterError> {
-    sleep(Duration::from_secs(5)).await;
-    Err(FilterError::TimedOut)
+//
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FilterPacket {
+    magic_bytes: u64,
+    version: (u16, u16),
 }
 
 //
 
-#[derive(Debug, Serialize, Deserialize)]
-struct FilterPacket<'a> {
-    magic_bytes: u64,
-    version: &'a str,
-}
+static PACKET: FilterPacket = FilterPacket {
+    // Just a random u64 I generated
+    //
+    // Not intended filter out malicious
+    // connections, just accidental
+    // connections and incompatible versions
+    magic_bytes: 0x87213c5b6657d98a,
 
-lazy_static::lazy_static! {
-    static ref PACKET: Bytes = {
-        bincode::serialize(&FilterPacket {
-            magic_bytes: MAGIC_BYTES,
-            version: VERSION,
-        }).unwrap().into()
-    };
-}
-
-// just a random u64 i generated
-// Not intended filter out malicious
-// connections, just accidental
-// connections and port scanners
-static MAGIC_BYTES: u64 = 0x87213c5b6657d98a;
+    version: include!(concat!(env!("OUT_DIR"), "/version")),
+};
 
 // TODO: 7, see README.md
 // static BREAKING_VERSIONS: &[(u16, u16, u16)] = &[];

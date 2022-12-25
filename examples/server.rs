@@ -9,7 +9,7 @@ pub async fn main() {
     let mut listener = Listener::bind("localhost:13331").unwrap();
     let mut socket = listener.next().await.unwrap();
 
-    log::info!("Start receiving ordered");
+    tracing::info!("Start receiving ordered");
 
     let mut i = 0;
     for _ in 0..20000_u16 {
@@ -19,19 +19,19 @@ pub async fn main() {
                 .unwrap(),
         );
         if j < i {
-            log::error!("Out of order packet {i} {j}");
+            tracing::error!("Out of order packet {i} {j}");
         }
         i = j;
     }
 
-    log::info!("all received");
+    tracing::info!("all received");
 
     socket
         .send(Packet::ordered_static(b"continue", None))
         .await
         .unwrap();
 
-    log::info!("Start receiving unordered");
+    tracing::info!("Start receiving unordered");
 
     let mut i = 0;
     let mut c = 0;
@@ -47,14 +47,14 @@ pub async fn main() {
         i = j;
     }
 
-    log::info!("all received, {c}/20000 out of order");
+    tracing::info!("all received, {c}/20000 out of order");
 
     socket
         .send(Packet::ordered_static(b"continue", None))
         .await
         .unwrap();
 
-    log::info!("Start receiving unreliable sequenced");
+    tracing::info!("Start receiving unreliable sequenced");
 
     let mut i = 0;
     let mut c = 0;
@@ -63,10 +63,10 @@ pub async fn main() {
 
         c += 1;
         if j < i {
-            log::error!("Out of order packet");
+            tracing::error!("Out of order packet");
         }
         i = j;
     }
 
-    log::info!("Got {c}/20000 packets");
+    tracing::info!("Got {c}/20000 packets");
 }

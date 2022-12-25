@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 
 //
@@ -9,45 +9,39 @@ pub enum PacketHeader {
     /// no packets are dropped
     ///
     /// ordered
-    Ordered { stream_id: Option<u8> },
-
-    /// old packets are dropped
-    ///
-    /// ordered
-    ReliableSequenced { stream_id: Option<u8>, seq_id: u16 },
+    Ordered { stream_id: u8 },
 
     /// no packets are dropped
     ///
     /// not ordered
-    ReliableUnordered,
+    Unordered,
+
+    /// old packets are dropped
+    ///
+    /// ordered
+    Sequenced { stream_id: u8, seq_id: u16 },
 
     /// 'random' and old packets are dropped
     ///
     /// ordered
-    UnreliableSequenced { stream_id: Option<u8>, seq_id: u16 },
+    UnreliableSequenced { stream_id: u8, seq_id: u16 },
 
     /// 'random' packets are dropped
     ///
     /// not ordered
-    Unreliable,
+    UnreliableUnordered,
 }
 
 //
 
 impl Default for PacketHeader {
     fn default() -> Self {
-        Self::Ordered { stream_id: None }
+        Self::Ordered { stream_id: 0 }
     }
 }
 
 //
 
-/// If your data is static: do `Bytes::from(data)`
-/// first to avoid copying or use the constructors
-/// postfixed with `_static`.
-///
-/// TODO: specialization for
-/// 'static when it is stable
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Packet {
     pub header: PacketHeader,
@@ -56,11 +50,25 @@ pub struct Packet {
 
 //
 
+impl PacketHeader {
+    pub fn with_seq_id(self, seq_id: u16) -> Self {
+        match self {
+            PacketHeader::Sequenced { stream_id, .. } => {
+                PacketHeader::Sequenced { stream_id, seq_id }
+            }
+            PacketHeader::UnreliableSequenced { stream_id, .. } => {
+                Self::UnreliableSequenced { stream_id, seq_id }
+            }
+            other => other,
+        }
+    }
+}
+
 impl Packet {
     /// no packets are dropped
     ///
     /// ordered
-    pub fn ordered<B: IntoBytes>(bytes: B, stream_id: Option<u8>) -> Self {
+    pub fn ordered<B: IntoBytes>(bytes: B, stream_id: u8) -> Self {
         Self {
             bytes: bytes.into_bytes(),
             header: PacketHeader::Ordered { stream_id },
@@ -69,67 +77,21 @@ impl Packet {
 
     /// no packets are dropped
     ///
-    /// ordered
-    pub fn ordered_static<B: IntoStaticBytes>(bytes: B, stream_id: Option<u8>) -> Self {
+    /// not ordered
+    pub fn unordered<B: IntoBytes>(bytes: B) -> Self {
         Self {
             bytes: bytes.into_bytes(),
-            header: PacketHeader::Ordered { stream_id },
+            header: PacketHeader::Unordered,
         }
     }
 
     /// old packets are dropped
     ///
     /// ordered
-    pub fn reliable_sequenced<B: IntoBytes>(bytes: B, stream_id: Option<u8>) -> Self {
+    pub fn sequenced<B: IntoBytes>(bytes: B, stream_id: u8) -> Self {
         Self {
             bytes: bytes.into_bytes(),
-            header: PacketHeader::ReliableSequenced {
-                stream_id,
-                seq_id: 0,
-            },
-        }
-    }
-
-    /// old packets are dropped
-    ///
-    /// ordered
-    pub fn reliable_sequenced_static<B: IntoStaticBytes>(bytes: B, stream_id: Option<u8>) -> Self {
-        Self {
-            bytes: bytes.into_bytes(),
-            header: PacketHeader::ReliableSequenced {
-                stream_id,
-                seq_id: 0,
-            },
-        }
-    }
-
-    /// no packets are dropped
-    ///
-    /// not ordered
-    pub fn reliable_unordered<B: IntoBytes>(bytes: B) -> Self {
-        Self {
-            bytes: bytes.into_bytes(),
-            header: PacketHeader::ReliableUnordered,
-        }
-    }
-
-    /// no packets are dropped
-    ///
-    /// not ordered
-    pub fn reliable_unordered_static<B: IntoStaticBytes>(bytes: B) -> Self {
-        Self {
-            bytes: bytes.into_bytes(),
-            header: PacketHeader::ReliableUnordered,
-        }
-    }
-
-    /// 'random' and old packets are dropped
-    ///
-    /// ordered
-    pub fn unreliable_sequenced<B: IntoBytes>(bytes: B, stream_id: Option<u8>) -> Self {
-        Self {
-            bytes: bytes.into_bytes(),
-            header: PacketHeader::UnreliableSequenced {
+            header: PacketHeader::Sequenced {
                 stream_id,
                 seq_id: 0,
             },
@@ -139,10 +101,7 @@ impl Packet {
     /// 'random' and old packets are dropped
     ///
     /// ordered
-    pub fn unreliable_sequenced_static<B: IntoStaticBytes>(
-        bytes: B,
-        stream_id: Option<u8>,
-    ) -> Self {
+    pub fn unreliable_sequenced<B: IntoBytes>(bytes: B, stream_id: u8) -> Self {
         Self {
             bytes: bytes.into_bytes(),
             header: PacketHeader::UnreliableSequenced {
@@ -155,21 +114,24 @@ impl Packet {
     /// 'random' packets are dropped
     ///
     /// not ordered
-    pub fn unreliable<B: IntoBytes>(bytes: B) -> Self {
+    pub fn unreliable_unordered<B: IntoBytes>(bytes: B) -> Self {
         Self {
             bytes: bytes.into_bytes(),
-            header: PacketHeader::Unreliable,
+            header: PacketHeader::UnreliableUnordered,
         }
     }
 
-    /// 'random' packets are dropped
-    ///
-    /// not ordered
-    pub fn unreliable_static<B: IntoStaticBytes>(bytes: B) -> Self {
+    pub fn with_seq_id(self, seq_id: u16) -> Self {
         Self {
-            bytes: bytes.into_bytes(),
-            header: PacketHeader::Unreliable,
+            bytes: self.bytes,
+            header: self.header.with_seq_id(seq_id),
         }
+    }
+
+    pub fn encode(&self) -> Bytes {
+        let mut packet = BytesMut::new().writer();
+        bincode::serialize_into(&mut packet, self).unwrap();
+        packet.into_inner().into()
     }
 }
 

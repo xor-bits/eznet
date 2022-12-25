@@ -3,23 +3,15 @@ use futures::Future;
 
 //
 
-pub mod listener;
+pub mod client;
+//pub mod endpoint;
 pub mod packet;
+pub mod server;
 pub mod socket;
 
 //
 
 mod filter;
-mod inner;
-mod reader;
-mod writer;
-
-//
-
-pub static VERSION: &str = concat!(
-    concat!(env!("CARGO_PKG_NAME"), "-"),
-    env!("CARGO_PKG_VERSION")
-);
 
 //
 
@@ -29,7 +21,7 @@ macro_rules! unwrap_or {
         match $e {
             Ok(ok) => ok,
             Err(err) => {
-                log::debug!(
+                tracing::debug!(
                     "Disconnected, reason: {err} ({}:{}:{})",
                     file!(),
                     line!(),

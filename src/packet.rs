@@ -128,10 +128,14 @@ impl Packet {
         }
     }
 
-    pub fn encode(&self) -> Bytes {
+    pub fn encode(&self) -> Result<Bytes, bincode::Error> {
         let mut packet = BytesMut::new().writer();
-        bincode::serialize_into(&mut packet, self).unwrap();
-        packet.into_inner().into()
+        bincode::serialize_into(&mut packet, self)?;
+        Ok(packet.into_inner().into())
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, bincode::Error> {
+        bincode::deserialize(bytes)
     }
 }
 

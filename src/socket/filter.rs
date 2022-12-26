@@ -1,4 +1,4 @@
-use futures::{join, select, FutureExt, SinkExt, StreamExt, TryFutureExt};
+use futures::{join, SinkExt, StreamExt};
 use quinn::{Connection, ConnectionError, IncomingUniStreams, WriteError};
 use serde::{Deserialize, Serialize};
 use std::{io, time::Duration};
@@ -13,19 +13,19 @@ pub enum FilterError {
     #[error("Timed out opening a test sender stream")]
     TimedOut,
 
-    #[error("Connection error ({0})")]
+    #[error(transparent)]
     ConnectionError(#[from] ConnectionError),
 
-    #[error("Connection error ({0})")]
+    #[error(transparent)]
     IoError(#[from] io::Error),
 
-    #[error("Connection error ({0})")]
+    #[error("Failed to send the filter packet: {0}")]
     WriteError(#[from] WriteError),
 
-    #[error("Invalid filter packet ({0})")]
+    #[error("Invalid filter packet: {0}")]
     PacketParseError(#[from] bincode::Error),
 
-    #[error("Invalid filter packet (invalid magic bytes)")]
+    #[error("Invalid filter packet: Invalid magic bytes")]
     InvalidPacketMagicBytes,
 
     // TODO: 7, see README.md
@@ -40,7 +40,7 @@ pub enum FilterError {
 
 pub async fn filter_unwanted(
     uni_streams: &mut IncomingUniStreams,
-    connection: &Connection,
+    connection: Connection,
 ) -> Result<(), FilterError> {
     let (a, b) = join!(send_filter_test(connection), recv_filter_test(uni_streams));
     a?;
@@ -49,7 +49,7 @@ pub async fn filter_unwanted(
     Ok(())
 }
 
-async fn send_filter_test(connection: &Connection) -> Result<(), FilterError> {
+async fn send_filter_test(connection: Connection) -> Result<(), FilterError> {
     // time out after 5 seconds
     // open a new stream for sending the filter test message
     let stream = timeout(Duration::from_secs(5), connection.open_uni())

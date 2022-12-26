@@ -1,4 +1,4 @@
-use crate::socket::{ConnectError, Socket};
+use crate::socket::{filter::FilterError, Socket};
 use futures::StreamExt;
 use once_cell::sync::OnceCell;
 use quinn::{Endpoint, Incoming, ServerConfig};
@@ -18,6 +18,27 @@ pub struct Server {
 pub enum BindError {
     #[error("Failed to bind socket: {0}")]
     IoError(#[from] io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum ConnectError {
+    #[error(transparent)]
+    Connect(#[from] quinn::ConnectError),
+
+    #[error(transparent)]
+    Connection(#[from] quinn::ConnectionError),
+
+    #[error("Failed to bind socket: {0}")]
+    IoError(std::io::Error),
+
+    #[error("Invalid socket address: {0}")]
+    InvalidSocketAddress(std::io::Error),
+
+    #[error("No socket address")]
+    NoSocketAddress,
+
+    #[error(transparent)]
+    FilterError(#[from] FilterError),
 }
 
 //
@@ -45,7 +66,7 @@ impl Server {
     /// Clients cannot validate the server
     ///
     /// This is the default
-    pub fn server_config_insecure(&mut self) {
+    pub fn insecure_server_config(&mut self) {
         self.update_config(Self::default_server_config())
     }
 
@@ -85,10 +106,7 @@ impl Server {
         // TODO: move to socket
         let connection = connecting.await?;
 
-        Ok(Socket::new(
-            connection,
-            self.sockets.get(index).unwrap().0.clone(),
-        ))
+        Ok(Socket::new(connection, self.sockets.get(index).unwrap().0.clone()).await?)
     }
 
     fn update_config(&mut self, config: ServerConfig) {

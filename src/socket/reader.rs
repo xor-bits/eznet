@@ -1,209 +1,180 @@
-use crate::{
-    packet::{Packet, PacketHeader},
-    unwrap_or,
-};
+use crate::packet::{Packet, PacketHeader};
 use bytes::{Bytes, BytesMut};
-use futures::{stream::SelectAll, StreamExt};
+use dashmap::DashMap;
+use futures::{select_biased, stream::SelectAll, FutureExt, StreamExt};
 use quinn::{ConnectionError, Datagrams, IncomingUniStreams, RecvStream};
-use std::{collections::HashMap, io::Error};
-use tokio::sync::{broadcast, mpsc};
+use thiserror::Error;
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 
 //
 
-pub async fn reader_worker_job(
-    mut uni_streams: IncomingUniStreams,
-    mut datagrams: Datagrams,
-    mut send: mpsc::Sender<Packet>,
-    mut should_stop: broadcast::Receiver<()>,
-) {
-    let mut recv_streams = SelectAll::new();
+#[derive(Debug)]
+pub struct Reader {
+    uni_streams: IncomingUniStreams,
+    datagrams: Datagrams,
+    open_streams: SelectAll<FRead>,
 
-    let mut reliable_seq: HashMap<Option<u8>, u16> = Default::default();
-    let mut unreliable_seq: HashMap<Option<u8>, u16> = Default::default();
-
-    loop {
-        let new_stream = async {
-            uni_streams
-                .next()
-                .await
-                .map(|s| s.map(|s| FramedRead::new(s, LengthDelimitedCodec::default())))
-        };
-
-        let old_stream = recv_streams.next();
-
-        let datagram_stream = datagrams.next();
-
-        if tokio::select! {
-            stream = new_stream => handle_new_stream(stream, &mut recv_streams),
-            Some(bytes) = old_stream => handle_old_stream(bytes, &mut send, &mut reliable_seq, &mut unreliable_seq).await,
-            bytes = datagram_stream => handle_datagram(bytes, &mut send, &mut reliable_seq, &mut unreliable_seq).await,
-            _ = should_stop.recv() => true,
-        } {
-            break;
-        };
-    }
-
-    tracing::debug!("Reader worker stopped");
+    seq: DashMap<u8, u16>,
 }
 
-// returns true if reader should stop
-fn handle_new_stream(
-    stream: Option<Result<FRead, ConnectionError>>,
-    recv_streams: &mut SelectAll<FRead>,
-) -> bool {
-    let stream = stream.ok_or("Empty new stream");
+#[derive(Debug, Error)]
+pub enum ReaderError {
+    #[error(transparent)]
+    Connection(#[from] quinn::ConnectionError),
 
-    let stream = unwrap_or!(stream, {
-        return true;
-    });
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 
-    let stream = unwrap_or!(stream, {
-        return true;
-    });
+    #[error("Failed to send unreliable packet: {0}")]
+    SendDatagram(#[from] quinn::SendDatagramError),
 
-    recv_streams.push(stream);
-    false
+    #[error("Failed to decode packet: {0}")]
+    Decode(#[from] bincode::Error),
 }
-
-// returns true if reader should stop
-async fn handle_old_stream(
-    bytes: Result<BytesMut, Error>,
-    send: &mut mpsc::Sender<Packet>,
-    reliable_seq: &mut HashMap<Option<u8>, u16>,
-    unreliable_seq: &mut HashMap<Option<u8>, u16>,
-) -> bool {
-    let packet = bytes.map(|b| bincode::deserialize(&b[..]));
-
-    let packet = unwrap_or!(packet, {
-        return true;
-    });
-
-    let packet = unwrap_or!(packet, {
-        return true;
-    });
-
-    if let Some(packet) = drop_sequenced(packet, reliable_seq, unreliable_seq) {
-        send.send(packet).await.is_err()
-    } else {
-        false
-    }
-}
-
-// returns true if reader should stop
-async fn handle_datagram(
-    bytes: Option<Result<Bytes, ConnectionError>>,
-    send: &mut mpsc::Sender<Packet>,
-    reliable_seq: &mut HashMap<Option<u8>, u16>,
-    unreliable_seq: &mut HashMap<Option<u8>, u16>,
-) -> bool {
-    let packet = bytes
-        .ok_or("Empty datagram")
-        .map(|b| b.map(|b| bincode::deserialize(&b[..])));
-
-    let packet = unwrap_or!(packet, {
-        return true;
-    });
-
-    let packet = unwrap_or!(packet, {
-        return true;
-    });
-
-    let packet = unwrap_or!(packet, {
-        return true;
-    });
-
-    if let Some(packet) = drop_sequenced(packet, reliable_seq, unreliable_seq) {
-        send.send(packet).await.is_err()
-    } else {
-        false
-    }
-}
-
-fn drop_sequenced(
-    packet: Packet,
-    reliable_seq: &mut HashMap<Option<u8>, u16>,
-    unreliable_seq: &mut HashMap<Option<u8>, u16>,
-) -> Option<Packet> {
-    // TODO: then_some
-    if match packet.header {
-        PacketHeader::ReliableSequenced { stream_id, seq_id } => {
-            drop_sequenced_common(stream_id, seq_id, reliable_seq)
-        }
-        PacketHeader::UnreliableSequenced { stream_id, seq_id } => {
-            drop_sequenced_common(stream_id, seq_id, unreliable_seq)
-        }
-        _ => true,
-    } {
-        Some(packet)
-    } else {
-        None
-    }
-}
-
-fn drop_sequenced_common(
-    stream_id: Option<u8>,
-    seq_id: u16,
-    seq: &mut HashMap<Option<u8>, u16>,
-) -> bool {
-    let recv_seq_id = seq.entry(stream_id).or_insert(0);
-    let send_seq_id = seq_id;
-
-    // convert them to a form where it is comparable
-    let rsi = u16::MAX / 2 - 1;
-    let ssi = ((send_seq_id as i32 - *recv_seq_id as i32).rem_euclid(u16::MAX as i32) as u16)
-        .wrapping_add(u16::MAX / 2);
-
-    if cfg!(test) {
-        dbg!(&recv_seq_id);
-        dbg!(&send_seq_id);
-        dbg!(&rsi);
-        dbg!(&ssi);
-    }
-
-    if ssi > rsi {
-        // got packet that is 'newer'
-        *recv_seq_id = send_seq_id + 1;
-        true
-    } else {
-        // got packet that is 'older'
-        tracing::debug!("Dropping out of sequence packet");
-        false
-    }
-}
-
-//
 
 type FRead = FramedRead<RecvStream, LengthDelimitedCodec>;
 
 //
 
+impl Reader {
+    pub async fn recv(&mut self) -> Result<Packet, ReaderError> {
+        loop {
+            select_biased! {
+                // old dropped packets are `None` and will be ignored
+                //
+                // prioritize reading datagrams / from already opened streams
+                packet = self.datagrams.next().fuse() => if let Some(packet) = self.handle_datagram(packet)? {
+                    return Ok(packet);
+                },
+                packet = self.open_streams.next().fuse() => if let Some(packet) = self.handle_open_stream(packet)? {
+                    return Ok(packet);
+                },
+
+                stream = self.uni_streams.next().fuse() => {
+                    self.handle_uni_stream(stream)?;
+                    continue;
+                },
+            }
+        }
+    }
+
+    pub(crate) fn new(uni_streams: IncomingUniStreams, datagrams: Datagrams) -> Self {
+        Self {
+            uni_streams,
+            datagrams,
+            open_streams: SelectAll::new(),
+            seq: DashMap::new(),
+        }
+    }
+
+    fn handle_datagram(
+        &mut self,
+        packet: Option<Result<Bytes, ConnectionError>>,
+    ) -> Result<Option<Packet>, ReaderError> {
+        let packet = packet.ok_or(ReaderError::Connection(
+            quinn::ConnectionError::LocallyClosed,
+        ))??;
+
+        self.handle_packet(&packet)
+    }
+
+    fn handle_open_stream(
+        &mut self,
+        packet: Option<Result<BytesMut, std::io::Error>>,
+    ) -> Result<Option<Packet>, ReaderError> {
+        let packet = packet.ok_or(ReaderError::Connection(
+            quinn::ConnectionError::LocallyClosed,
+        ))??;
+
+        self.handle_packet(&packet)
+    }
+
+    fn handle_uni_stream(
+        &mut self,
+        stream: Option<Result<RecvStream, ConnectionError>>,
+    ) -> Result<(), ReaderError> {
+        let stream = stream.ok_or(ReaderError::Connection(
+            quinn::ConnectionError::LocallyClosed,
+        ))??;
+
+        let stream = FRead::new(stream, <_>::default());
+
+        self.open_streams.push(stream);
+
+        Ok(())
+    }
+
+    fn handle_packet(&self, packet: &[u8]) -> Result<Option<Packet>, ReaderError> {
+        Ok(self.drop_sequenced(Packet::decode(packet)?))
+    }
+
+    fn drop_sequenced(&self, packet: Packet) -> Option<Packet> {
+        match packet.header {
+            PacketHeader::Sequenced { stream_id, seq_id }
+            | PacketHeader::UnreliableSequenced { stream_id, seq_id } => {
+                Self::seq_id_should_drop(stream_id, seq_id, &self.seq)
+            }
+            _ => true,
+        }
+        .then_some(packet)
+    }
+
+    fn seq_id_should_drop(stream_id: u8, seq_id: u16, seq: &DashMap<u8, u16>) -> bool {
+        let mut recv_seq_id = seq.entry(stream_id).or_insert(0);
+        let send_seq_id = seq_id;
+
+        // convert them to a form where it is comparable
+        let rsi = u16::MAX / 2 - 1;
+        let ssi = ((send_seq_id as i32 - *recv_seq_id as i32).rem_euclid(u16::MAX as i32) as u16)
+            .wrapping_add(u16::MAX / 2);
+
+        if cfg!(test) {
+            dbg!(&recv_seq_id);
+            dbg!(&send_seq_id);
+            dbg!(&rsi);
+            dbg!(&ssi);
+        }
+
+        if ssi > rsi {
+            // got packet that is 'newer'
+            *recv_seq_id = send_seq_id + 1;
+            true
+        } else {
+            // got packet that is 'older'
+            tracing::debug!("Dropping out of sequence packet");
+            false
+        }
+    }
+}
+
+//
+
 #[cfg(test)]
 mod tests {
-    use crate::reader::drop_sequenced_common;
-    use std::collections::hash_map::HashMap;
+    use super::Reader;
+    use dashmap::DashMap;
 
     #[test]
     fn drop_sequenced_common_test_0() {
-        let mut seq = HashMap::new();
-        seq.insert(None, 0);
+        let mut seq = DashMap::new();
+        seq.insert(0, 0);
 
-        assert!(drop_sequenced_common(None, 1, &mut seq) == true);
-        assert!(drop_sequenced_common(None, 1, &mut seq) == false);
-        assert!(drop_sequenced_common(None, 1, &mut seq) == false);
-        assert!(drop_sequenced_common(None, 2, &mut seq) == true);
-        assert!(drop_sequenced_common(None, 2, &mut seq) == false);
-        assert!(drop_sequenced_common(None, 2, &mut seq) == false);
-        assert!(drop_sequenced_common(None, 200, &mut seq) == true);
-        assert!(drop_sequenced_common(None, 2, &mut seq) == false);
-        assert!(drop_sequenced_common(None, u16::MAX / 4, &mut seq) == true);
-        assert!(drop_sequenced_common(None, u16::MAX / 2, &mut seq) == true);
-        assert!(drop_sequenced_common(None, u16::MAX / 4 * 3, &mut seq) == true);
-        assert!(drop_sequenced_common(None, u16::MAX - 100, &mut seq) == true);
-        assert!(drop_sequenced_common(None, u16::MAX - 100, &mut seq) == false);
-        assert!(drop_sequenced_common(None, u16::MAX - 99, &mut seq) == true);
-        assert!(drop_sequenced_common(None, u16::MAX - 99, &mut seq) == false);
-        assert!(drop_sequenced_common(None, 0, &mut seq) == true);
-        assert!(drop_sequenced_common(None, 0, &mut seq) == false);
+        assert!(Reader::seq_id_should_drop(0, 1, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, 1, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, 1, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, 2, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, 2, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, 2, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, 200, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, 2, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX / 4, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX / 2, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX / 4 * 3, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX - 100, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX - 100, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX - 99, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, u16::MAX - 99, &seq) == false);
+        assert!(Reader::seq_id_should_drop(0, 0, &seq) == true);
+        assert!(Reader::seq_id_should_drop(0, 0, &seq) == false);
     }
 }

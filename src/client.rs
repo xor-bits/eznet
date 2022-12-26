@@ -1,4 +1,5 @@
-use crate::socket::Socket;
+use crate::socket::{filter::FilterError, Socket};
+use futures::{stream::FuturesUnordered, StreamExt};
 use once_cell::sync::OnceCell;
 use quinn::{ClientConfig, Endpoint};
 use rustls::{client::ServerCertVerifier, Certificate};
@@ -7,6 +8,7 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
+use tokio::net::{lookup_host, ToSocketAddrs};
 
 //
 
@@ -23,11 +25,17 @@ pub enum ClientConnectError {
     #[error("Failed to create a client Endpoint: {0}")]
     SocketBind(#[from] std::io::Error),
 
-    #[error("Failed to connect: {0}")]
+    #[error("Failed to create a client Endpoint: No addresses given")]
+    NoSocketAddrs,
+
+    #[error(transparent)]
     Connect(#[from] quinn::ConnectError),
 
-    #[error("Failed to connect: {0}")]
+    #[error(transparent)]
     Connection(#[from] quinn::ConnectionError),
+
+    #[error(transparent)]
+    Filter(#[from] FilterError),
 }
 
 //
@@ -83,7 +91,27 @@ impl Client {
 
         let conn = endpoint.connect(addr, server_name)?.await?;
 
-        Ok(Socket::new(conn, endpoint.clone()))
+        Ok(Socket::new(conn, endpoint.clone()).await?)
+    }
+
+    pub async fn connect_to<A: ToSocketAddrs>(
+        &self,
+        addr: A,
+        server_name: &str,
+    ) -> Result<Socket, ClientConnectError> {
+        let mut futures = lookup_host(addr)
+            .await?
+            .map(|addr| self.connect(addr, server_name))
+            .collect::<FuturesUnordered<_>>();
+
+        let mut err = ClientConnectError::NoSocketAddrs;
+        while let Some(socket) = futures.next().await {
+            match socket {
+                socket @ Ok(_) => return socket,
+                Err(e) => err = e,
+            }
+        }
+        Err(err)
     }
 
     fn update_config(&mut self, config: ClientConfig) {

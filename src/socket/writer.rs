@@ -4,22 +4,25 @@ use dashmap::{
     DashMap,
 };
 use futures::SinkExt;
-use quinn::{Connection, Endpoint};
+use quinn::Connection;
 use std::{
     fmt::Debug,
+    net::SocketAddr,
     sync::atomic::{AtomicU16, Ordering},
+    time::Duration,
 };
 use thiserror::Error;
 use tokio_util::codec::{FramedWrite, LengthDelimitedCodec};
 
 //
 
+#[derive(Debug)]
 pub struct Writer {
-    endpoint: Endpoint,
     connection: Connection,
     streams: DashMap<u8, Stream>,
 }
 
+#[derive(Debug)]
 pub struct Stream {
     write: FWrite,
     seq_id: AtomicU16,
@@ -33,8 +36,11 @@ pub enum WriterError {
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
-    #[error(transparent)]
+    #[error("Failed to send an unreliable packet: {0}")]
     SendDatagramError(#[from] quinn::SendDatagramError),
+
+    #[error("Failed to encode packet: {0}")]
+    DecodeError(#[from] bincode::Error),
 }
 
 type FWrite = FramedWrite<quinn::SendStream, LengthDelimitedCodec>;
@@ -44,7 +50,7 @@ type FWrite = FramedWrite<quinn::SendStream, LengthDelimitedCodec>;
 impl Writer {
     pub async fn send(&self, packet: Packet) -> Result<(), WriterError> {
         match packet.header {
-            PacketHeader::Ordered { stream_id } => {
+            PacketHeader::Ordered { stream_id } | PacketHeader::Sequenced { stream_id, .. } => {
                 self.get_stream(stream_id)
                     .await?
                     .value_mut()
@@ -52,22 +58,13 @@ impl Writer {
                     .await?
             }
             PacketHeader::Unordered => self.new_stream().await?.send(packet).await?,
-            PacketHeader::Sequenced { stream_id, .. } => {
-                self.get_stream(stream_id)
-                    .await?
-                    .value_mut()
-                    .send(packet)
-                    .await?;
-            }
-            PacketHeader::UnreliableSequenced { stream_id, .. } => {
-                self.connection.send_datagram(
-                    packet
-                        .with_seq_id(self.get_stream(stream_id).await?.value().next())
-                        .encode(),
-                )?;
-            }
+            PacketHeader::UnreliableSequenced { stream_id, .. } => self.connection.send_datagram(
+                packet
+                    .with_seq_id(self.get_stream(stream_id).await?.value().next())
+                    .encode()?,
+            )?,
             PacketHeader::UnreliableUnordered => {
-                self.connection.send_datagram(packet.encode())?;
+                self.connection.send_datagram(packet.encode()?)?;
             }
         };
 
@@ -78,17 +75,8 @@ impl Writer {
         futures::executor::block_on(self.send(packet))
     }
 
-    pub fn connection(&self) -> &Connection {
-        &self.connection
-    }
-
-    pub fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
-    }
-
-    pub(crate) fn new(endpoint: Endpoint, connection: Connection) -> Self {
+    pub(crate) fn new(connection: Connection) -> Self {
         Self {
-            endpoint,
             connection,
             streams: Default::default(),
         }
@@ -110,6 +98,18 @@ impl Writer {
             seq_id: 0.into(),
         })
     }
+
+    pub fn rtt(&self) -> Duration {
+        self.connection.rtt()
+    }
+
+    pub fn remote(&self) -> SocketAddr {
+        self.connection.remote_address()
+    }
+
+    pub fn connection(&self) -> Connection {
+        self.connection.clone()
+    }
 }
 
 impl Stream {
@@ -117,29 +117,10 @@ impl Stream {
         self.seq_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    async fn send(&mut self, packet: Packet) -> std::io::Result<()> {
+    async fn send(&mut self, packet: Packet) -> Result<(), WriterError> {
         self.write
-            .send(packet.with_seq_id(self.next()).encode())
+            .send(packet.with_seq_id(self.next()).encode()?)
             .await?;
         Ok(())
-    }
-}
-
-impl std::fmt::Debug for Writer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Writer")
-            .field("endpoint", &self.endpoint)
-            .field("connection", &self.connection)
-            .field("streams", &self.streams)
-            .finish()
-    }
-}
-
-impl std::fmt::Debug for Stream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Stream")
-            .field("write", &self.write)
-            .field("seq_id", &self.seq_id)
-            .finish()
     }
 }

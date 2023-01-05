@@ -15,7 +15,7 @@ futures = "0.3"
 rustls = { version = "0.20", features = ["dangerous_configuration", "quic"] }
 quinn = "0.8"
 quinn-proto = "0.8"
-rcgen = "0.9"
+rcgen = "0.10"
 thiserror = "1.0"
 bytes = { version = "1.1", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["codec"] }
@@ -29,3 +29,4 @@ tokio = { version = "1.23.0", features = ["time"] }
 [dev-dependencies]
 tokio = { version = "1.16", features = ["macros", "rt-multi-thread", "io-std"] }
 tracing-subscriber = "0.3.16"
+anyhow = "1.0"

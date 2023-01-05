@@ -1,5 +1,5 @@
 use eznet::{client::Client, packet::Packet, server::Server, socket::Socket};
-use std::time::Duration;
+use std::{time::Duration, net::SocketAddr};
 use tokio::time::sleep;
 
 //
@@ -9,6 +9,8 @@ pub async fn main() {
     tracing_subscriber::fmt::init();
 
     let mut client = Client::new();
+
+    let mut socket = client.connect(, server_name);
 
     let mut socket = Socket::connect("localhost:13331").await.unwrap();
 

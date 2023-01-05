@@ -1,5 +1,5 @@
 use crate::socket::{filter::FilterError, Socket};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{future::join, Future};
 use once_cell::sync::OnceCell;
 use quinn::{ClientConfig, Endpoint};
 use rustls::{client::ServerCertVerifier, Certificate};
@@ -8,11 +8,13 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
-use tokio::net::{lookup_host, ToSocketAddrs};
+use tracing::instrument;
 
 //
 
-// Lazy initialized dual stack (IPv4 + IPv6) client
+/// Lazy initialized dual stack (IPv4 + IPv6) client
+///
+/// The same client can be used to connect to multiple [`Server`]s
 #[derive(Debug, Default)]
 pub struct Client {
     client_v4: OnceCell<Endpoint>,
@@ -64,24 +66,30 @@ impl Client {
         self.update_config(Self::default_client_config());
     }
 
+    #[instrument(skip_all, fields(server_name = server_name, server_addr = addr.into().to_string()))]
     pub async fn connect(
         &self,
-        addr: SocketAddr,
+        addr: impl Into<SocketAddr> + Copy,
         server_name: &str,
-    ) -> Result<Socket, ClientConnectError> {
+    ) -> Result<impl Future<Output = Result<Socket, FilterError>>, ClientConnectError> {
+        let addr = addr.into();
+
         // a client can take any port that's available
-        let (listen, endpoint) = match addr {
+        let (v, listen, endpoint) = match addr {
             SocketAddr::V4(_) => (
+                4,
                 SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0).into(),
                 &self.client_v4,
             ),
             SocketAddr::V6(_) => (
+                6,
                 SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0).into(),
                 &self.client_v6,
             ),
         };
 
         let endpoint = endpoint.get_or_try_init(|| {
+            tracing::debug!("Initializing IPv{v} endpoint");
             let mut client = quinn::Endpoint::client(listen)?;
             client.set_default_client_config(
                 self.config.get_or_init(Self::default_client_config).clone(),
@@ -89,29 +97,27 @@ impl Client {
             Ok::<_, ClientConnectError>(client)
         })?;
 
-        let conn = endpoint.connect(addr, server_name)?.await?;
+        tracing::debug!("Connecting to a server");
+        let conn = endpoint.connect(addr, server_name)?;
 
-        Ok(Socket::new(conn, endpoint.clone()).await?)
+        tracing::debug!("Initializing a connection to the server");
+        Ok(Socket::new(conn, endpoint.clone()))
     }
 
-    pub async fn connect_to<A: ToSocketAddrs>(
+    pub async fn connect_wait(
         &self,
-        addr: A,
+        addr: impl Into<SocketAddr> + Copy,
         server_name: &str,
     ) -> Result<Socket, ClientConnectError> {
-        let mut futures = lookup_host(addr)
-            .await?
-            .map(|addr| self.connect(addr, server_name))
-            .collect::<FuturesUnordered<_>>();
+        Ok(self.connect(addr, server_name).await?.await?)
+    }
 
-        let mut err = ClientConnectError::NoSocketAddrs;
-        while let Some(socket) = futures.next().await {
-            match socket {
-                socket @ Ok(_) => return socket,
-                Err(e) => err = e,
-            }
+    pub async fn wait_idle(&self) {
+        match (self.client_v4.get(), self.client_v6.get()) {
+            (Some(a), Some(b)) => _ = join(a.wait_idle(), b.wait_idle()).await,
+            (Some(a), None) | (None, Some(a)) => a.wait_idle().await,
+            _ => {}
         }
-        Err(err)
     }
 
     fn update_config(&mut self, config: ClientConfig) {

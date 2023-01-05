@@ -1,16 +1,17 @@
 use crate::socket::{filter::FilterError, Socket};
-use futures::StreamExt;
+use futures::{stream::SelectAll, Future, Stream, StreamExt};
 use once_cell::sync::OnceCell;
-use quinn::{Endpoint, Incoming, ServerConfig};
+use quinn::{Connecting, Endpoint, Incoming, ServerConfig};
 use rustls::{Certificate, PrivateKey};
 use std::{io, net::SocketAddr};
 use thiserror::Error;
+use tracing::instrument;
 
 //
 
 #[derive(Debug, Default)]
 pub struct Server {
-    sockets: Vec<(Endpoint, Incoming)>,
+    sockets: SelectAll<ServerSocket>,
     config: OnceCell<ServerConfig>,
 }
 
@@ -41,12 +42,38 @@ pub enum ConnectError {
     FilterError(#[from] FilterError),
 }
 
+#[derive(Debug)]
+struct ServerSocket {
+    endpoint: Endpoint,
+    incoming: Incoming,
+}
+
+impl Stream for ServerSocket {
+    type Item = (Connecting, Endpoint);
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.incoming
+            .poll_next_unpin(cx)
+            .map(|res| res.map(|conn| (conn, self.endpoint.clone())))
+    }
+}
+
 //
 
 impl Server {
     /// Self signed certificate
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Self signed certificate
+    pub fn from(addr: impl Into<SocketAddr>) -> Result<Self, BindError> {
+        let mut s = Self::new();
+        s.bind(addr.into())?;
+        Ok(s)
     }
 
     /// Custom server configuration
@@ -76,37 +103,31 @@ impl Server {
             self.config.get_or_init(Self::default_server_config).clone(),
             addr,
         )?;
-        self.sockets.push((endpoint.clone(), incoming));
+        self.sockets.push(ServerSocket {
+            endpoint: endpoint.clone(),
+            incoming,
+        });
         Ok(endpoint)
     }
 
-    /// Bind multiple addresses
-    pub fn bind_all<'s>(
-        &'s mut self,
-        addr: impl Iterator<Item = SocketAddr> + 's,
-    ) -> impl Iterator<Item = Result<Endpoint, BindError>> + 's {
-        let config = self.config.get_or_init(Self::default_server_config);
-        addr.map(|addr| {
-            let (endpoint, incoming) = Endpoint::server(config.clone(), addr)?;
-            self.sockets.push((endpoint.clone(), incoming));
-            Ok(endpoint)
-        })
+    /// Take the next connection
+    #[instrument(skip_all, fields(sockets = %self.sockets.len()))]
+    pub async fn next(
+        &mut self,
+    ) -> Result<impl Future<Output = Result<Socket, FilterError>>, ConnectError> {
+        tracing::debug!("Waiting for the next client");
+        let (connecting, incoming) = self
+            .sockets
+            .next()
+            .await
+            .ok_or(ConnectError::Connect(quinn::ConnectError::EndpointStopping))?;
+
+        tracing::debug!("A client is connecting");
+        Ok(Socket::new(connecting, incoming))
     }
 
-    /// Take the next connection
-    pub async fn next(&mut self) -> Result<Socket, ConnectError> {
-        let (connecting, index, _) = futures::future::select_all(
-            self.sockets.iter_mut().map(|(_, incoming)| incoming.next()),
-        )
-        .await;
-
-        let connecting =
-            connecting.ok_or(ConnectError::Connect(quinn::ConnectError::EndpointStopping))?;
-
-        // TODO: move to socket
-        let connection = connecting.await?;
-
-        Ok(Socket::new(connection, self.sockets.get(index).unwrap().0.clone()).await?)
+    pub async fn next_wait(&mut self) -> Result<Socket, ConnectError> {
+        Ok(self.next().await?.await?)
     }
 
     fn update_config(&mut self, config: ServerConfig) {

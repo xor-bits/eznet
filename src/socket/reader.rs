@@ -1,15 +1,22 @@
+use super::{writer::Writer, Socket, SocketStats};
 use crate::packet::{Packet, PacketHeader};
-use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
-use futures::{select_biased, stream::SelectAll, FutureExt, StreamExt};
-use quinn::{ConnectionError, Datagrams, IncomingUniStreams, RecvStream};
+use futures::{stream::SelectAll, StreamExt};
+use quinn::{Connection, ConnectionError, Datagrams, Endpoint, IncomingUniStreams, RecvStream};
+use std::{
+    io,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use thiserror::Error;
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use tracing::instrument;
 
 //
 
 #[derive(Debug)]
 pub struct Reader {
+    connection: Connection,
+    endpoint: Endpoint,
     uni_streams: IncomingUniStreams,
     datagrams: Datagrams,
     open_streams: SelectAll<FRead>,
@@ -23,7 +30,7 @@ pub enum ReaderError {
     Connection(#[from] quinn::ConnectionError),
 
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 
     #[error("Failed to send unreliable packet: {0}")]
     SendDatagram(#[from] quinn::SendDatagramError),
@@ -36,21 +43,45 @@ type FRead = FramedRead<RecvStream, LengthDelimitedCodec>;
 
 //
 
+static RECV_DBG_ID: AtomicUsize = AtomicUsize::new(0);
+
+//
+
 impl Reader {
+    /// Cancel safe
+    #[instrument(skip_all, fields(id = %RECV_DBG_ID.fetch_add(1, Ordering::SeqCst)))]
     pub async fn recv(&mut self) -> Result<Packet, ReaderError> {
         loop {
-            select_biased! {
+            tracing::debug!("Attempting to read");
+
+            // Cancel safety: this select _should_ be the only .await point
+            // tracing debug macros don't await on anything, right?
+            tokio::select! {
                 // old dropped packets are `None` and will be ignored
                 //
                 // prioritize reading datagrams / from already opened streams
-                packet = self.datagrams.next().fuse() => if let Some(packet) = self.handle_datagram(packet)? {
-                    return Ok(packet);
+                Some(packet) = self.datagrams.next() => {
+                    tracing::debug!({
+                        err = packet.as_ref().err()
+                            .map(ConnectionError::to_string)
+                    }, "Got Datagram packet");
+                    if let Some(packet) = self.handle_packet(&packet?)? {
+                        return Ok(packet);
+                    }
                 },
-                packet = self.open_streams.next().fuse() => if let Some(packet) = self.handle_open_stream(packet)? {
-                    return Ok(packet);
+                Some(packet) = self.open_streams.next() => {
+                    tracing::debug!({
+                        err = packet.as_ref().err()
+                            .map(io::Error::to_string)
+                    }, "Got UniStream packet");
+                    if let Some(packet) = self.handle_packet(&packet?)? {
+                        return Ok(packet);
+                    }
                 },
 
-                stream = self.uni_streams.next().fuse() => {
+                // listen for new streams
+                stream = self.uni_streams.next()=> {
+                    tracing::debug!("New stream opened, reattempting");
                     self.handle_uni_stream(stream)?;
                     continue;
                 },
@@ -58,35 +89,29 @@ impl Reader {
         }
     }
 
-    pub(crate) fn new(uni_streams: IncomingUniStreams, datagrams: Datagrams) -> Self {
+    pub fn blocking_recv(&mut self) -> Result<Packet, ReaderError> {
+        futures::executor::block_on(self.recv())
+    }
+
+    /// Reunite the socket halfs
+    pub fn reunite(writer: Writer, reader: Reader) -> Socket {
+        Socket::reunite(writer, reader)
+    }
+
+    pub(crate) fn new(
+        connection: Connection,
+        endpoint: Endpoint,
+        uni_streams: IncomingUniStreams,
+        datagrams: Datagrams,
+    ) -> Self {
         Self {
+            connection,
+            endpoint,
             uni_streams,
             datagrams,
             open_streams: SelectAll::new(),
             seq: DashMap::new(),
         }
-    }
-
-    fn handle_datagram(
-        &mut self,
-        packet: Option<Result<Bytes, ConnectionError>>,
-    ) -> Result<Option<Packet>, ReaderError> {
-        let packet = packet.ok_or(ReaderError::Connection(
-            quinn::ConnectionError::LocallyClosed,
-        ))??;
-
-        self.handle_packet(&packet)
-    }
-
-    fn handle_open_stream(
-        &mut self,
-        packet: Option<Result<BytesMut, std::io::Error>>,
-    ) -> Result<Option<Packet>, ReaderError> {
-        let packet = packet.ok_or(ReaderError::Connection(
-            quinn::ConnectionError::LocallyClosed,
-        ))??;
-
-        self.handle_packet(&packet)
     }
 
     fn handle_uni_stream(
@@ -144,6 +169,16 @@ impl Reader {
             tracing::debug!("Dropping out of sequence packet");
             false
         }
+    }
+}
+
+impl SocketStats for Reader {
+    fn connection(&self) -> Connection {
+        self.connection.clone()
+    }
+
+    fn endpoint(&self) -> Endpoint {
+        self.endpoint.clone()
     }
 }
 

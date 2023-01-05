@@ -1,15 +1,28 @@
-use eznet::{listener::Listener, packet::Packet};
+use eznet::{packet::Packet, server::Server, socket::SocketStats};
 
 //
 
 #[tokio::main]
 async fn main() {
-    let mut listener = Listener::bind("localhost:13331").unwrap();
+    tracing_subscriber::fmt::init();
 
-    while let Ok(socket) = listener.next().await {
-        socket
-            .send(Packet::ordered(format!("Hello {}!", socket.remote()), None))
+    let mut server = Server::from(([127, 0, 0, 1], 13331)).unwrap();
+
+    while let Ok(socket) = server.next().await {
+        tokio::spawn(async move {
+            if let Err(err) = async move {
+                let socket = socket.await?;
+                socket
+                    .send(Packet::ordered(format!("Hello {}!", socket.remote()), 0))
+                    .await?;
+                socket.endpoint().wait_idle().await;
+
+                Ok::<_, anyhow::Error>(())
+            }
             .await
-            .unwrap();
+            {
+                tracing::error!("Network error: {err}")
+            }
+        });
     }
 }

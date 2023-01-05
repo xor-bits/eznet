@@ -1,15 +1,14 @@
+use super::{reader::Reader, Socket, SocketStats};
 use crate::packet::{Packet, PacketHeader};
 use dashmap::{
     mapref::{entry::Entry, one::RefMut},
     DashMap,
 };
 use futures::SinkExt;
-use quinn::Connection;
+use quinn::{Connection, Endpoint};
 use std::{
     fmt::Debug,
-    net::SocketAddr,
     sync::atomic::{AtomicU16, Ordering},
-    time::Duration,
 };
 use thiserror::Error;
 use tokio_util::codec::{FramedWrite, LengthDelimitedCodec};
@@ -19,6 +18,7 @@ use tokio_util::codec::{FramedWrite, LengthDelimitedCodec};
 #[derive(Debug)]
 pub struct Writer {
     connection: Connection,
+    endpoint: Endpoint,
     streams: DashMap<u8, Stream>,
 }
 
@@ -48,19 +48,35 @@ type FWrite = FramedWrite<quinn::SendStream, LengthDelimitedCodec>;
 //
 
 impl Writer {
+    /// Cancel safe
+    ///
+    /// Cancelling drops the packet (obviously)
     pub async fn send(&self, packet: Packet) -> Result<(), WriterError> {
         match packet.header {
             PacketHeader::Ordered { stream_id } | PacketHeader::Sequenced { stream_id, .. } => {
                 self.get_stream(stream_id)
                     .await?
+                    // If cancelled here, the stream is already stored and it doesn't matter
                     .value_mut()
                     .send(packet)
                     .await?
             }
-            PacketHeader::Unordered => self.new_stream().await?.send(packet).await?,
+            PacketHeader::Unordered => {
+                self.new_stream()
+                    .await?
+                    // If cancelled here, the stream will do nothing and won't be opened anyways
+                    .send(packet)
+                    .await?
+            }
             PacketHeader::UnreliableSequenced { stream_id, .. } => self.connection.send_datagram(
                 packet
-                    .with_seq_id(self.get_stream(stream_id).await?.value().next())
+                    .with_seq_id(
+                        self.get_stream(stream_id)
+                            .await?
+                            // If cancelled here, the stream is already stored and it doesn't matter
+                            .value()
+                            .next(),
+                    )
                     .encode()?,
             )?,
             PacketHeader::UnreliableUnordered => {
@@ -75,9 +91,18 @@ impl Writer {
         futures::executor::block_on(self.send(packet))
     }
 
-    pub(crate) fn new(connection: Connection) -> Self {
+    // TODO:
+    // pub async fn flush(&self) {}
+
+    /// Reunite the socket halfs
+    pub fn reunite(writer: Writer, reader: Reader) -> Socket {
+        Socket::reunite(writer, reader)
+    }
+
+    pub(crate) fn new(connection: Connection, endpoint: Endpoint) -> Self {
         Self {
             connection,
+            endpoint,
             streams: Default::default(),
         }
     }
@@ -98,17 +123,15 @@ impl Writer {
             seq_id: 0.into(),
         })
     }
+}
 
-    pub fn rtt(&self) -> Duration {
-        self.connection.rtt()
-    }
-
-    pub fn remote(&self) -> SocketAddr {
-        self.connection.remote_address()
-    }
-
-    pub fn connection(&self) -> Connection {
+impl SocketStats for Writer {
+    fn connection(&self) -> Connection {
         self.connection.clone()
+    }
+
+    fn endpoint(&self) -> Endpoint {
+        self.endpoint.clone()
     }
 }
 
